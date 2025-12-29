@@ -1,3 +1,4 @@
+
 export interface GraphNode {
   id: string;
   label: string;
@@ -24,6 +25,18 @@ export interface GraphLink {
 export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
+}
+
+// --- Project Management ---
+
+export interface GraphProject {
+  id: string;
+  name: string;
+  updatedAt: number;
+  isPinned: boolean;
+  graphData: GraphData;
+  themeData: ThemeConfig;
+  eventData: EventSequence;
 }
 
 // --- Theme / Style Configuration ---

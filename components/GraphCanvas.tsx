@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
 import gsap from 'gsap';
@@ -6,6 +7,7 @@ import { GraphData, GraphNode, GraphLink, EventSequence, ThemeConfig, Simulation
 interface GraphCanvasProps {
   data: GraphData;
   theme: ThemeConfig;
+  readonly?: boolean; // New prop for dashboard thumbnails
   onNodeDragEnd?: (nodes: GraphNode[]) => void;
   onSimulationEnd?: (nodes: GraphNode[], links: GraphLink[]) => void;
 }
@@ -14,7 +16,7 @@ export interface GraphCanvasHandle {
   runAnimation: (sequence: EventSequence) => void;
 }
 
-const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, theme, onNodeDragEnd, onSimulationEnd }, ref) => {
+const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, theme, readonly = false, onNodeDragEnd, onSimulationEnd }, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<SVGSVGElement>(null);
@@ -33,7 +35,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       fill: "#fff", 
       stroke: "#fff",
       strokeWidth: 2,
-      radius: 20,
+      radius: readonly ? 12 : 20, // Slightly larger in readonly for visibility
       badge: null as { text?: string, color?: string, textColor?: string } | null
     };
 
@@ -59,7 +61,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
   const getLinkVisuals = (link: GraphLink) => {
     let visuals = {
       mainColor: "#94a3b8",
-      width: 2,
+      width: readonly ? 1.5 : 2,
       opacity: 0.6,
       outlineColor: "transparent",
       outlineWidth: 0
@@ -174,20 +176,25 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
     const width = wrapperRef.current.clientWidth;
     const height = wrapperRef.current.clientHeight;
 
+    // Only enable zoom if not readonly
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on("zoom", (event) => {
         d3.select(svgRef.current).select(".zoom-layer").attr("transform", event.transform);
-        updateMinimap(event.transform, width, height);
+        if (!readonly) updateMinimap(event.transform, width, height);
       });
     
     zoomBehaviorRef.current = zoom;
     const svg = d3.select(svgRef.current)
       .attr("width", width)
       .attr("height", height)
-      .attr("viewBox", [0, 0, width, height])
-      .call(zoom)
-      .on("dblclick.zoom", null);
+      .attr("viewBox", [0, 0, width, height]);
+
+    if (!readonly) {
+        svg.call(zoom).on("dblclick.zoom", null);
+    } else {
+        svg.on(".zoom", null);
+    }
 
     svg.selectAll("*").remove();
 
@@ -217,11 +224,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
     nodesRef.current = nodes;
     linksRef.current = links;
 
+    // Adjust forces for readonly/thumbnail mode to ensure good spread
     const simulation = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
-      .force("charge", d3.forceManyBody().strength(-400))
+      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(readonly ? 60 : 150))
+      .force("charge", d3.forceManyBody().strength(readonly ? -300 : -400))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide().radius(40));
+      .force("collide", d3.forceCollide().radius(readonly ? 25 : 40));
 
     simulationRef.current = simulation;
 
@@ -247,47 +255,56 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       .attr("class", "nodes-layer")
       .selectAll("g")
       .data(nodes)
-      .join("g")
-      .call(d3.drag<SVGGElement, GraphNode>()
+      .join("g");
+      
+    if (!readonly) {
+      nodeGroup.call(d3.drag<SVGGElement, GraphNode>()
         .on("start", dragstarted)
         .on("drag", dragged)
-        .on("end", dragended) as any)
-      .attr("id", (d) => `node-group-${d.id}`);
+        .on("end", dragended) as any);
+    }
+      
+    nodeGroup.attr("id", (d) => `node-group-${d.id}`);
 
     nodeGroup.append("circle")
       .attr("class", "node-circle")
       .attr("id", (d) => `node-${d.id}`);
 
+    // Labels
     nodeGroup.append("text")
       .text(d => d.label)
       .attr("x", 0)
-      .attr("y", 32)
+      .attr("y", readonly ? 22 : 32)
       .attr("text-anchor", "middle")
       .attr("fill", "#475569")
-      .attr("font-size", "12px")
+      .attr("font-size", readonly ? "12px" : "12px")
       .attr("font-weight", "500")
       .style("pointer-events", "none")
       .clone(true).lower()
       .attr("stroke", "white")
-      .attr("stroke-width", 3);
+      .attr("stroke-width", readonly ? 1.5 : 3); // Reduced stroke width in readonly to prevent overlapping
 
     const badgeGroup = nodeGroup.append("g")
       .attr("class", "node-badge")
-      .attr("transform", "translate(14, -14)")
+      .attr("transform", readonly ? "translate(8, -8)" : "translate(14, -14)")
       .style("display", "none");
 
     badgeGroup.append("circle")
-      .attr("r", 8)
+      .attr("r", readonly ? 5 : 8)
       .attr("stroke", "#fff")
       .attr("stroke-width", 1.5);
     
-    badgeGroup.append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", 3)
-      .attr("font-size", "10px")
-      .attr("font-weight", "bold");
+    if (!readonly) {
+        badgeGroup.append("text")
+          .attr("text-anchor", "middle")
+          .attr("dy", 3)
+          .attr("font-size", "10px")
+          .attr("font-weight", "bold");
+    }
 
-    zoomLayer.append("g").attr("class", "anim-layer");
+    if (!readonly) {
+        zoomLayer.append("g").attr("class", "anim-layer");
+    }
 
     const updateStyles = () => {
        linkGroup.each(function(d) {
@@ -316,16 +333,18 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
          if (visuals.badge) {
             badge.style("display", "block");
             badge.select("circle").attr("fill", visuals.badge.color || "red");
-            badge.select("text")
-              .text(visuals.badge.text || "!")
-              .attr("fill", visuals.badge.textColor || "white");
+            if(!readonly) {
+                badge.select("text")
+                  .text(visuals.badge.text || "!")
+                  .attr("fill", visuals.badge.textColor || "white");
+            }
          } else {
             badge.style("display", "none");
          }
        });
     };
 
-    simulation.on("tick", () => {
+    const ticked = () => {
       linkGroup.selectAll("line")
         .attr("x1", (d: any) => d.source.x)
         .attr("y1", (d: any) => d.source.y)
@@ -335,10 +354,51 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       nodeGroup.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
       
       updateStyles();
-      renderMinimapNodes(nodes, links, width, height);
-      const currentTransform = d3.zoomTransform(svg.node()!);
-      updateMinimap(currentTransform, width, height);
-    });
+      if (!readonly) {
+        renderMinimapNodes(nodes, links, width, height);
+        const currentTransform = d3.zoomTransform(svg.node()!);
+        updateMinimap(currentTransform, width, height);
+      }
+    };
+
+    simulation.on("tick", ticked);
+
+    // If readonly, run simulation quickly to settle it, then stop to save resources
+    if (readonly) {
+        simulation.tick(300); // Pre-calculate 300 ticks
+        ticked(); // IMPORTANT: Update DOM after simulation settles
+        simulation.stop();
+        
+        // Auto-fit to view
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let hasNodes = false;
+        nodes.forEach(n => {
+            if (n.x !== undefined && n.y !== undefined) {
+                hasNodes = true;
+                minX = Math.min(minX, n.x);
+                maxX = Math.max(maxX, n.x);
+                minY = Math.min(minY, n.y);
+                maxY = Math.max(maxY, n.y);
+            }
+        });
+        
+        if (hasNodes) {
+          const padding = 40;
+          const contentWidth = maxX - minX;
+          const contentHeight = maxY - minY;
+          const fitWidth = Math.max(contentWidth, 100); // Minimum dimension to prevent massive zoom on single node
+          const fitHeight = Math.max(contentHeight, 100);
+
+          const scaleX = (width - padding) / fitWidth;
+          const scaleY = (height - padding) / fitHeight;
+          const scale = Math.min(scaleX, scaleY, 1.2); // Cap max scale to avoid huge elements
+          
+          const centerX = (minX + maxX) / 2;
+          const centerY = (minY + maxY) / 2;
+          
+          zoomLayer.attr("transform", `translate(${width/2}, ${height/2}) scale(${scale}) translate(${-centerX}, ${-centerY})`);
+        }
+    }
 
     function dragstarted(event: any) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -360,12 +420,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
     return () => {
       simulation.stop();
     };
-  }, [data, theme, onNodeDragEnd]); 
+  }, [data, theme, readonly, onNodeDragEnd]); 
 
   // --- ANIMATION IMPERATIVE HANDLE ---
   useImperativeHandle(ref, () => ({
     runAnimation: (sequence: EventSequence) => {
-      if (!svgRef.current) return;
+      if (!svgRef.current || readonly) return;
       const svg = d3.select(svgRef.current);
       let animLayer = svg.select<SVGGElement>(".zoom-layer .anim-layer");
       if (animLayer.empty()) {
@@ -531,15 +591,19 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       {/* Main Graph SVG */}
       <svg ref={svgRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
       
-      {/* Attribution */}
-      <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border border-slate-200 text-xs text-slate-500 pointer-events-none">
-        Powered by GraphFlow Engine
-      </div>
+      {!readonly && (
+        <>
+          {/* Attribution */}
+          <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border border-slate-200 text-xs text-slate-500 pointer-events-none">
+            Powered by GraphFlow Engine
+          </div>
 
-      {/* Minimap */}
-      <div className="absolute bottom-4 right-4 w-48 h-36 bg-white/90 backdrop-blur shadow-lg border border-slate-200 rounded-lg overflow-hidden pointer-events-none">
-        <svg ref={minimapRef} className="w-full h-full block bg-slate-50/50" preserveAspectRatio="xMidYMid meet" />
-      </div>
+          {/* Minimap */}
+          <div className="absolute bottom-4 right-4 w-48 h-36 bg-white/90 backdrop-blur shadow-lg border border-slate-200 rounded-lg overflow-hidden pointer-events-none">
+            <svg ref={minimapRef} className="w-full h-full block bg-slate-50/50" preserveAspectRatio="xMidYMid meet" />
+          </div>
+        </>
+      )}
     </div>
   );
 });
