@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -10,7 +11,7 @@
       body {
         font-family: 'Inter', sans-serif;
       }
-      /* Custom scrollbar for JSON editor */
+      /* Custom scrollbar */
       .custom-scrollbar::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -25,6 +26,46 @@
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
         background: #a8a8a8;
       }
+
+      /* CodeMirror Line Height Synchronization */
+      .cm-editor {
+        height: 100%;
+        font-size: 12px;
+      }
+      .cm-content, .cm-gutterElement {
+        line-height: 20px !important; /* Fixed line height for sync */
+      }
+      .cm-line {
+        padding: 0 4px !important;
+        line-height: 20px !important;
+      }
+      
+      /* Color Swatch Gutter Styles */
+      .color-swatch-input {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        outline: none;
+        background: none;
+      }
+      .color-swatch-input::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      .color-swatch-input::-webkit-color-swatch {
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 2px;
+      }
+
+      /* Hide scrollbar for the custom gutter */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
     </style>
   <script type="importmap">
 {
@@ -34,7 +75,11 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "gsap": "https://esm.sh/gsap@^3.14.2",
-    "d3": "https://esm.sh/d3@^7.9.0"
+    "d3": "https://esm.sh/d3@^7.9.0",
+    "@uiw/react-codemirror": "https://esm.sh/@uiw/react-codemirror@^4.23.0",
+    "@codemirror/lang-json": "https://esm.sh/@codemirror/lang-json@^6.0.1",
+    "@codemirror/theme-one-dark": "https://esm.sh/@codemirror/theme-one-dark@^6.1.2",
+    "@codemirror/view": "https://esm.sh/@codemirror/view@^6.0.0"
   }
 }
 </script>
