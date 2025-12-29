@@ -7,10 +7,10 @@ import { Dashboard } from './components/Dashboard';
 // --- DEFAULTS ---
 const INITIAL_GRAPH: GraphData = {
   nodes: [
-    { id: "1", label: "Client", group: 0 },
-    { id: "2", label: "Gateway", group: 1 },
-    { id: "3", label: "Auth", group: 1 },
-    { id: "4", label: "DB", group: 2 },
+    { id: "1", label: "Client", group: 0, x: 100, y: 200 },
+    { id: "2", label: "Gateway", group: 1, x: 300, y: 200 },
+    { id: "3", label: "Auth", group: 1, x: 500, y: 100 },
+    { id: "4", label: "DB", group: 2, x: 500, y: 300 },
   ],
   links: [
     { source: "1", target: "2" },
@@ -51,11 +51,26 @@ const INITIAL_THEME: ThemeConfig = {
 };
 
 const INITIAL_EVENTS: EventSequence = {
-  name: "Default Flow",
+  name: "Parallel Flow Demo",
   steps: [
-    { "from": "1", "to": "2", "label": "Request", "linkStyle": "http_request" },
-    { "from": "2", "to": "3", "label": "Auth", "linkStyle": "http_request" },
-    { "from": "3", "to": "2", "label": "Auth OK", "targetNodeState": "success" }
+    { from: "1", to: "2", label: "Request", linkStyle: "http_request" },
+    {
+      type: "parallel",
+      label: "Async Processing",
+      steps: [
+        { from: "2", to: "3", label: "Auth Check", linkStyle: "http_request" },
+        { from: "2", to: "4", label: "DB Fetch", linkStyle: "db_query" }
+      ]
+    },
+    {
+      type: "parallel",
+      label: "Responses",
+      steps: [
+        { from: "3", to: "2", label: "Auth OK", targetNodeState: "success" },
+        { from: "4", to: "2", label: "Data Found", targetNodeState: "success" }
+      ]
+    },
+    { from: "2", to: "1", label: "Final Response", targetNodeState: "success" }
   ]
 };
 

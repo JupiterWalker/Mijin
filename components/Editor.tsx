@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Toggle } from './Toggle';
 import GraphCanvas, { GraphCanvasHandle } from './GraphCanvas';
 import { GraphData, EventSequence, GraphNode, GraphLink, ThemeConfig, GraphProject } from '../types';
-import { Settings, Play, CheckCircle2, AlertCircle, Code2, Activity, RotateCcw, Palette, ArrowLeft, Save } from 'lucide-react';
+import { Settings, Play, CheckCircle2, AlertCircle, Code2, Activity, RotateCcw, Palette, ArrowLeft, X, Save } from 'lucide-react';
 
 interface EditorProps {
   initialProject: GraphProject;
@@ -14,6 +14,10 @@ interface EditorProps {
 const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const [devMode, setDevMode] = useState(true);
   const [projectName, setProjectName] = useState(initialProject.name);
+  
+  // Store the original state of the project when this editor instance was mounted.
+  // This serves as the "Restore to Default" target.
+  const [mountGraphData] = useState<GraphData>(JSON.parse(JSON.stringify(initialProject.graphData)));
   
   // Data States
   const [graphData, setGraphData] = useState<GraphData>(initialProject.graphData);
@@ -28,18 +32,34 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   // Errors
   const [errors, setErrors] = useState({ graph: '', theme: '', event: '' });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  
+  // Dirty state tracking for manual save
+  const [isDirty, setIsDirty] = useState(false);
+  const isFirstRender = useRef(true);
+
+  // Add a key to force re-mounting of the GraphCanvas component
+  // This is crucial for "Reset" to completely wipe D3's internal state (velocities, fixed positions, etc)
+  const [canvasKey, setCanvasKey] = useState(0);
 
   const canvasRef = useRef<GraphCanvasHandle>(null);
 
-  // Auto-save effect
+  // Styling Constants
+  const textareaClass = "w-full bg-slate-800 text-slate-200 font-mono text-xs p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/50 border border-slate-700 resize-y leading-relaxed custom-scrollbar shadow-inner block";
+  const btnPrimaryClass = "px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors flex items-center shadow-sm active:scale-95 transform duration-100";
+  const btnSecondaryClass = "px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-medium rounded-md transition-colors flex items-center shadow-sm active:scale-95 transform duration-100";
+
+  // Track changes to enable Save button
   useEffect(() => {
-    const timer = setTimeout(() => {
-        handleGlobalSave();
-    }, 2000); // Debounce save
-    return () => clearTimeout(timer);
+    if (isFirstRender.current) {
+        isFirstRender.current = false;
+        return;
+    }
+    setIsDirty(true);
+    // If user edits while "Saved" message is showing, revert to idle immediately
+    if (saveStatus === 'saved') setSaveStatus('idle');
   }, [graphData, themeData, eventData, projectName]);
 
-  const handleGlobalSave = () => {
+  const handleManualSave = () => {
     setSaveStatus('saving');
     const updatedProject: GraphProject = {
         ...initialProject,
@@ -50,8 +70,16 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         updatedAt: Date.now()
     };
     onSave(updatedProject);
-    setTimeout(() => setSaveStatus('saved'), 500);
-    setTimeout(() => setSaveStatus('idle'), 2000);
+    
+    // UI Feedback delays
+    setTimeout(() => {
+        setSaveStatus('saved');
+        setIsDirty(false);
+    }, 500);
+    setTimeout(() => {
+        // Only revert to idle if we are still in 'saved' state (haven't started saving again)
+        setSaveStatus(prev => prev === 'saved' ? 'idle' : prev); 
+    }, 2500);
   };
 
   // Generic JSON Handler
@@ -80,12 +108,37 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   };
 
   const handleResetData = () => {
-    const resetNodes = graphData.nodes.map(({activeStates, ...rest}) => ({...rest, activeStates: []}));
-    const resetLinks = graphData.links.map(({activeStates, ...rest}) => ({...rest, activeStates: []}));
+    // Reset to the state captured when the editor opened (mountGraphData).
+    // This restores original positions and structure.
+    
+    // Sanitize the mount data to ensure no D3 artifacts (just in case they were saved)
+    // and clear active states.
+    const resetNodes = mountGraphData.nodes.map(n => ({
+      id: n.id,
+      label: n.label,
+      group: n.group,
+      x: n.x,
+      y: n.y,
+      // Do not copy fx/fy if they were set, we generally want to let them be re-initialized
+      // or respect x/y as starting points. If x/y are present, GraphCanvas will treat them as fixed
+      // unless we clear D3 state.
+      activeStates: []
+    }));
+
+    const resetLinks = mountGraphData.links.map(l => ({
+      source: (l.source as any).id || l.source,
+      target: (l.target as any).id || l.target,
+      activeStates: []
+    }));
     
     const resetData = { nodes: resetNodes, links: resetLinks };
     setGraphData(resetData);
     setGraphJson(JSON.stringify(resetData, null, 2));
+    
+    // Force GraphCanvas to completely unmount and remount.
+    // This clears D3's internal node map, velocity, and 'fx'/'fy' states,
+    // ensuring a clean restart of the simulation/layout.
+    setCanvasKey(prev => prev + 1);
   };
 
   const handleUpdate = (nodes: GraphNode[], links: GraphLink[]) => {
@@ -120,16 +173,27 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                 <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="h-6 w-px bg-slate-300"></div>
-            <div className="flex flex-col">
-                 <input 
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    className="bg-transparent font-bold text-slate-800 focus:outline-none focus:bg-slate-100 rounded px-1 -ml-1 text-sm w-48"
-                 />
-                 <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                    {saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving...' : 'Auto-save on'}
-                 </span>
-            </div>
+            
+            <input 
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                className="bg-transparent font-bold text-slate-800 focus:outline-none focus:bg-slate-100 rounded px-2 py-1 text-sm w-48"
+                placeholder="Project Name"
+            />
+            
+            <button 
+                onClick={handleManualSave}
+                disabled={!isDirty || saveStatus === 'saving'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                    isDirty 
+                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm' 
+                        : 'bg-slate-100 text-slate-400 cursor-default'
+                }`}
+                title={isDirty ? "Save changes" : "No changes to save"}
+            >
+                <Save className="w-3.5 h-3.5" />
+                {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+            </button>
             
             <div className="h-6 w-px bg-slate-300"></div>
             <Toggle checked={devMode} onChange={setDevMode} label="Dev Mode" />
@@ -137,6 +201,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         </div>
 
         <GraphCanvas 
+          key={canvasKey}
           ref={canvasRef} 
           data={graphData} 
           theme={themeData}
@@ -156,8 +221,8 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             <Settings className="w-5 h-5" />
             <h2 className="font-semibold text-lg">Configuration</h2>
           </div>
-          <button onClick={() => setDevMode(false)} className="text-slate-400 hover:text-slate-600">
-             &#x2715;
+          <button onClick={() => setDevMode(false)} className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded transition-colors">
+             <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -169,10 +234,10 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             icon={<Code2 className="w-4 h-4" />}
             actions={
               <>
-                <button onClick={handleResetData} className="btn-secondary" title="Reset States">
+                <button onClick={handleResetData} className={btnSecondaryClass} title="Reset to Original Layout">
                   <RotateCcw className="w-3 h-3 mr-1" /> Reset
                 </button>
-                <button onClick={() => handleApply('graph', graphJson, setGraphData)} className="btn-primary">
+                <button onClick={() => handleApply('graph', graphJson, setGraphData)} className={btnPrimaryClass}>
                   <CheckCircle2 className="w-3 h-3 mr-1" /> Apply
                 </button>
               </>
@@ -182,7 +247,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             <textarea
               value={graphJson}
               onChange={(e) => setGraphJson(e.target.value)}
-              className="editor-textarea h-40"
+              className={`${textareaClass} h-40`}
               spellCheck={false}
             />
           </Section>
@@ -194,7 +259,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             title="Theme Config" 
             icon={<Palette className="w-4 h-4" />}
             actions={
-              <button onClick={() => handleApply('theme', themeJson, setThemeData)} className="btn-secondary">
+              <button onClick={() => handleApply('theme', themeJson, setThemeData)} className={btnSecondaryClass}>
                 Apply Theme
               </button>
             }
@@ -203,7 +268,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             <textarea
               value={themeJson}
               onChange={(e) => setThemeJson(e.target.value)}
-              className="editor-textarea h-40"
+              className={`${textareaClass} h-40`}
               spellCheck={false}
             />
             <p className="text-xs text-slate-400 mt-1">Define styles for nodes and links here.</p>
@@ -216,7 +281,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             title="Event Simulation" 
             icon={<Activity className="w-4 h-4" />}
             actions={
-              <button onClick={() => handleApply('event', eventJson, setEventData)} className="btn-secondary">
+              <button onClick={() => handleApply('event', eventJson, setEventData)} className={btnSecondaryClass}>
                 Save Script
               </button>
             }
@@ -225,13 +290,13 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             <textarea
               value={eventJson}
               onChange={(e) => setEventJson(e.target.value)}
-              className="editor-textarea h-32"
+              className={`${textareaClass} h-32`}
               spellCheck={false}
             />
             <button 
               onClick={triggerAnimation}
               disabled={!!errors.event}
-              className="w-full mt-3 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-medium text-sm flex justify-center items-center shadow-sm"
+              className="w-full mt-3 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-medium text-sm flex justify-center items-center shadow-sm transition-colors active:scale-[0.99] transform duration-100"
             >
               <Play className="w-4 h-4 mr-2 fill-current" />
               Run Simulation
@@ -256,7 +321,7 @@ const Section: React.FC<any> = ({ title, icon, actions, error, children }) => (
     <div className="relative">
       {children}
       {error && (
-        <div className="absolute bottom-2 left-2 right-2 bg-red-50 text-red-600 text-xs p-2 rounded border border-red-200 flex items-start">
+        <div className="absolute bottom-2 left-2 right-2 bg-red-50 text-red-600 text-xs p-2 rounded border border-red-200 flex items-start animate-in fade-in slide-in-from-bottom-1">
           <AlertCircle className="w-3 h-3 mr-1 mt-0.5 flex-shrink-0" />
           {error}
         </div>
