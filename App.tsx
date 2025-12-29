@@ -86,12 +86,26 @@ const INITIAL_THEME: ThemeConfig = {
 };
 
 const INITIAL_EVENTS: EventSequence = {
-  name: "Auth Flow Simulation",
+  name: "Gateway Fan-out Flow",
   steps: [
-    { from: "1", to: "2", linkStyle: "http_request", label: "Login" },
-    { from: "2", to: "3", linkStyle: "http_request", label: "Verify", targetNodeState: "success" },
-    { from: "2", to: "4", linkStyle: "db_query", label: "Fetch Profile" },
-    { from: "4", to: "2", linkStyle: "slow_network", label: "Timeout", targetNodeState: "warning" }
+    { "from": "1", "to": "2", "label": "Client Request", "linkStyle": "http_request" },
+    {
+      "type": "parallel",
+      "label": "Parallel Processing",
+      "steps": [
+        { "from": "2", "to": "3", "label": "Auth Check", "linkStyle": "http_request" },
+        { "from": "2", "to": "4", "label": "Fetch Data", "linkStyle": "db_query" }
+      ]
+    },
+    { 
+      "type": "parallel",
+      "label": "Responses",
+      "steps": [
+        { "from": "3", "to": "2", "label": "Auth OK", "targetNodeState": "success" },
+        { "from": "4", "to": "2", "label": "Data Found" }
+      ]
+    },
+    { "from": "2", "to": "1", "label": "Response", "linkStyle": "http_request" }
   ]
 };
 

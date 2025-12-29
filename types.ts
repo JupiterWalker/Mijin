@@ -71,7 +71,8 @@ export interface ThemeConfig {
 
 // --- Event Sequence ---
 
-export interface EventStep {
+export interface AtomicStep {
+  type?: 'atomic'; // Default if undefined
   from: string;
   to: string;
   label?: string;
@@ -87,7 +88,19 @@ export interface EventStep {
   delay?: number;
 }
 
+export interface ParallelStep {
+  type: 'parallel';
+  steps: SimulationAction[];
+  delay?: number;
+  label?: string;
+}
+
+export type SimulationAction = AtomicStep | ParallelStep;
+
+// Backward compatibility alias if needed, though we use SimulationAction now
+export type EventStep = AtomicStep; 
+
 export interface EventSequence {
   name: string;
-  steps: EventStep[];
+  steps: SimulationAction[];
 }
