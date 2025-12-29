@@ -24,6 +24,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
   // D3 Refs
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const lastTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
   
   // Store processed nodes to access coordinates for animation and persistence
   const nodesRef = useRef<GraphNode[]>([]);
@@ -176,22 +177,27 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
     const width = wrapperRef.current.clientWidth;
     const height = wrapperRef.current.clientHeight;
 
-    // Only enable zoom if not readonly
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 4])
-      .on("zoom", (event) => {
-        d3.select(svgRef.current).select(".zoom-layer").attr("transform", event.transform);
-        if (!readonly) updateMinimap(event.transform, width, height);
-      });
-    
-    zoomBehaviorRef.current = zoom;
     const svg = d3.select(svgRef.current)
       .attr("width", width)
       .attr("height", height)
       .attr("viewBox", [0, 0, width, height]);
 
+    // Setup zoom behavior
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 4])
+      .on("zoom", (event) => {
+        d3.select(svgRef.current).select(".zoom-layer").attr("transform", event.transform);
+        lastTransformRef.current = event.transform; // Save transform to ref to persist across effect runs
+        if (!readonly) updateMinimap(event.transform, width, height);
+      });
+    
+    zoomBehaviorRef.current = zoom;
+
     if (!readonly) {
         svg.call(zoom).on("dblclick.zoom", null);
+        // CRITICAL: Re-apply the last known transform to the new zoom behavior instance
+        // This prevents the "jump" when clicking/panning after a data update
+        svg.call(zoom.transform, lastTransformRef.current);
     } else {
         svg.on(".zoom", null);
     }
@@ -200,6 +206,11 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
 
     const zoomLayer = svg.append("g").attr("class", "zoom-layer");
     
+    // Apply the transform to the initial render as well
+    if (!readonly) {
+        zoomLayer.attr("transform", lastTransformRef.current.toString());
+    }
+
     const oldNodesMap = new Map<string, GraphNode>(nodesRef.current.map(n => [n.id, n]));
 
     const nodes: GraphNode[] = data.nodes.map(n => {
@@ -356,8 +367,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       updateStyles();
       if (!readonly) {
         renderMinimapNodes(nodes, links, width, height);
-        const currentTransform = d3.zoomTransform(svg.node()!);
-        updateMinimap(currentTransform, width, height);
+        updateMinimap(lastTransformRef.current, width, height);
       }
     };
 
