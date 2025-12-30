@@ -1,7 +1,8 @@
 
-import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import gsap from 'gsap';
+import { Pencil, Trash2, Check, X, Palette, Trash } from 'lucide-react';
 import { GraphData, GraphNode, GraphLink, EventSequence, ThemeConfig, SimulationAction, AtomicStep, ParallelStep } from '../types';
 
 interface GraphCanvasProps {
@@ -9,6 +10,8 @@ interface GraphCanvasProps {
   theme: ThemeConfig;
   readonly?: boolean;
   onNodeDragEnd?: (nodes: GraphNode[]) => void;
+  onNodeDelete?: (nodeId: string) => void;
+  onNodeUpdate?: (node: GraphNode) => void;
   onSimulationEnd?: (nodes: GraphNode[], links: GraphLink[]) => void;
 }
 
@@ -16,12 +19,24 @@ export interface GraphCanvasHandle {
   runAnimation: (sequence: EventSequence) => void;
 }
 
-const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, theme, readonly = false, onNodeDragEnd, onSimulationEnd }, ref) => {
+const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ 
+  data, 
+  theme, 
+  readonly = false, 
+  onNodeDragEnd, 
+  onNodeDelete,
+  onNodeUpdate,
+  onSimulationEnd 
+}, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<SVGSVGElement>(null);
   
-  // D3 Refs
+  // D3 Selection Refs for direct style updates
+  const nodeSelectionRef = useRef<d3.Selection<SVGGElement, GraphNode, SVGGElement, unknown> | null>(null);
+  const linkSelectionRef = useRef<d3.Selection<SVGGElement, GraphLink, SVGGElement, unknown> | null>(null);
+  
+  // D3 Simulation Refs
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const lastTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
@@ -29,48 +44,28 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
   const nodesRef = useRef<GraphNode[]>([]);
   const linksRef = useRef<GraphLink[]>([]);
 
-  // State to track dimensions for consistent rendering
+  // UI State
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [editingLabel, setEditingLabel] = useState("");
 
-  // Handle Resize
-  useEffect(() => {
-    if (!wrapperRef.current || readonly) return;
+  const selectedNode = useMemo(() => 
+    nodesRef.current.find(n => n.id === selectedNodeId), 
+    [selectedNodeId, data.nodes]
+  );
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setDimensions({ width, height });
-        
-        // Update SVG attributes immediately to keep coordinate system in sync
-        if (svgRef.current) {
-          d3.select(svgRef.current)
-            .attr("width", width)
-            .attr("height", height)
-            .attr("viewBox", [0, 0, width, height]);
-        }
-
-        // Update simulation center force if it exists
-        if (simulationRef.current) {
-          simulationRef.current.force("center", d3.forceCenter(width / 2, height / 2));
-          simulationRef.current.alpha(0.01).restart(); // Gentle nudge to re-center
-        }
-      }
-    });
-
-    observer.observe(wrapperRef.current);
-    return () => observer.disconnect();
-  }, [readonly]);
-
-  const getNodeVisuals = (node: GraphNode) => {
+  // Helper to get visuals (moved to component scope)
+  const getNodeVisuals = useCallback((node: GraphNode) => {
     let visuals = {
       fill: "#fff", 
-      stroke: "#fff",
-      strokeWidth: 2,
+      stroke: selectedNodeId === node.id ? "#6366f1" : "#fff",
+      strokeWidth: selectedNodeId === node.id ? 3 : 2,
       radius: readonly ? 12 : 20,
       badge: null as { text?: string, color?: string, textColor?: string } | null
     };
 
-    const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b"];
+    const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
     visuals.fill = groupColors[(node.group || 0) % groupColors.length];
 
     if (node.activeStates && theme.nodeStyles) {
@@ -79,17 +74,17 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
         if (styleDef && styleDef.persistent) {
           const p = styleDef.persistent;
           if (p.fill) visuals.fill = p.fill;
-          if (p.stroke) visuals.stroke = p.stroke;
-          if (p.strokeWidth !== undefined) visuals.strokeWidth = p.strokeWidth;
+          if (p.stroke && selectedNodeId !== node.id) visuals.stroke = p.stroke;
+          if (p.strokeWidth !== undefined && selectedNodeId !== node.id) visuals.strokeWidth = p.strokeWidth;
           if (p.radius !== undefined) visuals.radius = p.radius;
           if (p.badge) visuals.badge = p.badge;
         }
       });
     }
     return visuals;
-  };
+  }, [selectedNodeId, theme.nodeStyles, readonly]);
 
-  const getLinkVisuals = (link: GraphLink) => {
+  const getLinkVisuals = useCallback((link: GraphLink) => {
     let visuals = {
       mainColor: "#94a3b8",
       width: readonly ? 1.5 : 2,
@@ -112,110 +107,149 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       });
     }
     return visuals;
-  };
+  }, [theme.linkStyles, readonly]);
+
+  // Core Style Update Function - Synchronizes data states to DOM
+  const updateStyles = useCallback(() => {
+    if (linkSelectionRef.current) {
+      linkSelectionRef.current.each(function(d) {
+        const visuals = getLinkVisuals(d);
+        const g = d3.select(this);
+        g.select(".link-outline").attr("stroke", visuals.outlineColor!).attr("stroke-width", visuals.outlineWidth!);
+        g.select(".link-core").attr("stroke", visuals.mainColor!).attr("stroke-width", visuals.width!).attr("stroke-opacity", visuals.opacity!);
+      });
+    }
+
+    if (nodeSelectionRef.current) {
+      nodeSelectionRef.current.each(function(d) {
+        const visuals = getNodeVisuals(d);
+        const g = d3.select(this);
+        g.select(".node-circle").attr("r", visuals.radius!).attr("fill", visuals.fill!).attr("stroke", visuals.stroke!).attr("stroke-width", visuals.strokeWidth!);
+        const badge = g.select(".node-badge");
+        if (visuals.badge) {
+          badge.style("display", "block");
+          badge.select("circle").attr("fill", visuals.badge.color || "red");
+          if (!readonly) badge.select("text").text(visuals.badge.text || "!").attr("fill", visuals.badge.textColor || "white");
+        } else {
+          badge.style("display", "none");
+        }
+      });
+    }
+  }, [getNodeVisuals, getLinkVisuals, readonly]);
+
+  // Reset confirmation state when selection changes
+  useEffect(() => {
+    setIsConfirmingDelete(false);
+  }, [selectedNodeId]);
+
+  // Handle Resize
+  useEffect(() => {
+    if (!wrapperRef.current || readonly) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setDimensions({ width, height });
+        if (svgRef.current) {
+          d3.select(svgRef.current)
+            .attr("width", width)
+            .attr("height", height)
+            .attr("viewBox", [0, 0, width, height]);
+        }
+        if (simulationRef.current) {
+          simulationRef.current.force("center", d3.forceCenter(width / 2, height / 2));
+          simulationRef.current.alpha(0.01).restart();
+        }
+      }
+    });
+
+    observer.observe(wrapperRef.current);
+    return () => observer.disconnect();
+  }, [readonly]);
 
   const updateMinimap = (transform: d3.ZoomTransform, width: number, height: number) => {
     if (!minimapRef.current || width === 0) return;
-    
     const worldScale = 4;
     const worldW = width * worldScale;
     const worldH = height * worldScale;
     const minimapSvg = d3.select(minimapRef.current);
-    
     const viewX = (-transform.x / transform.k) + (width / 2);
     const viewY = (-transform.y / transform.k) + (height / 2);
     const viewW = width / transform.k;
     const viewH = height / transform.k;
-
     const mapX = (viewX - width/2) + (worldW/2);
     const mapY = (viewY - height/2) + (worldH/2);
-    
-    minimapSvg.select(".minimap-viewport")
-      .attr("x", mapX)
-      .attr("y", mapY)
-      .attr("width", viewW)
-      .attr("height", viewH);
+    minimapSvg.select(".minimap-viewport").attr("x", mapX).attr("y", mapY).attr("width", viewW).attr("height", viewH);
   };
 
   const renderMinimapNodes = (nodes: GraphNode[], links: GraphLink[], width: number, height: number) => {
     if (!minimapRef.current || width === 0) return;
-    
     const worldScale = 4;
     const worldW = width * worldScale;
     const worldH = height * worldScale;
-    
     const svg = d3.select(minimapRef.current);
     svg.attr("viewBox", [0, 0, worldW, worldH]);
-
     let content = svg.select<SVGGElement>(".minimap-content");
     if (content.empty()) {
       svg.append("rect").attr("class", "minimap-bg").attr("width", worldW).attr("height", worldH).attr("fill", "transparent");
       content = svg.append("g").attr("class", "minimap-content");
-      svg.append("rect")
-        .attr("class", "minimap-viewport")
-        .attr("fill", "#ef4444")
-        .attr("fill-opacity", 0.1)
-        .attr("stroke", "#ef4444")
-        .attr("stroke-width", 20) 
-        .attr("stroke-opacity", 0.5);
+      svg.append("rect").attr("class", "minimap-viewport").attr("fill", "#ef4444").attr("fill-opacity", 0.1).attr("stroke", "#ef4444").attr("stroke-width", 20).attr("stroke-opacity", 0.5);
     }
-
     content.attr("transform", `translate(${worldW/2}, ${worldH/2})`);
-
-    content.selectAll("line")
-      .data(links)
-      .join("line")
-      .attr("x1", (d: any) => d.source.x)
-      .attr("y1", (d: any) => d.source.y)
-      .attr("x2", (d: any) => d.target.x)
-      .attr("y2", (d: any) => d.target.y)
-      .attr("stroke", "#94a3b8")
-      .attr("stroke-width", 5);
-
-    content.selectAll("circle")
-      .data(nodes)
-      .join("circle")
-      .attr("cx", (d) => d.x!)
-      .attr("cy", (d) => d.y!)
-      .attr("r", 15)
-      .attr("fill", (d) => {
-        const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b"];
-        return groupColors[(d.group || 0) % groupColors.length];
-      });
+    content.selectAll("line").data(links).join("line").attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y).attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y).attr("stroke", "#94a3b8").attr("stroke-width", 5);
+    content.selectAll("circle").data(nodes).join("circle").attr("cx", (d) => d.x!).attr("cy", (d) => d.y!).attr("r", 15).attr("fill", (d) => {
+      const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
+      return groupColors[(d.group || 0) % groupColors.length];
+    });
   }
 
   useEffect(() => {
     if (!svgRef.current || !wrapperRef.current) return;
-
     const width = wrapperRef.current.clientWidth;
     const height = wrapperRef.current.clientHeight;
     if (width === 0) return;
 
-    setDimensions({ width, height });
-
-    const svg = d3.select(svgRef.current)
-      .attr("width", width)
-      .attr("height", height)
-      .attr("viewBox", [0, 0, width, height]);
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+    
+    // Background layer to capture clicks
+    svg.append("rect")
+      .attr("width", "100%")
+      .attr("height", "100%")
+      .attr("fill", "transparent")
+      .attr("class", "canvas-bg")
+      .on("click", () => {
+        if (!readonly) {
+          setSelectedNodeId(null);
+          setIsConfirmingDelete(false);
+        }
+      });
 
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on("zoom", (event) => {
-        d3.select(svgRef.current).select(".zoom-layer").attr("transform", event.transform);
+        svg.select(".zoom-layer").attr("transform", event.transform);
         lastTransformRef.current = event.transform;
-        if (!readonly) updateMinimap(event.transform, width, height);
+        if (!readonly) {
+           updateMinimap(event.transform, width, height);
+           setDimensions(d => ({...d})); 
+        }
       });
     
     zoomBehaviorRef.current = zoom;
 
     if (!readonly) {
         svg.call(zoom).on("dblclick.zoom", null);
-        svg.call(zoom.transform, lastTransformRef.current);
+        svg.on("click", (event) => {
+          if (event.target === svgRef.current) {
+            setSelectedNodeId(null);
+            setIsConfirmingDelete(false);
+          }
+        });
     } else {
         svg.on(".zoom", null);
     }
 
-    svg.selectAll("*").remove();
     const zoomLayer = svg.append("g").attr("class", "zoom-layer");
     if (!readonly) zoomLayer.attr("transform", lastTransformRef.current.toString());
 
@@ -246,7 +280,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(readonly ? 60 : 150))
       .force("charge", d3.forceManyBody().strength(readonly ? -300 : -400))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide().radius(readonly ? 25 : 40));
+      .force("collide", d3.forceCollide().radius(readonly ? 30 : 45));
 
     simulationRef.current = simulation;
 
@@ -255,16 +289,31 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       .selectAll("g")
       .data(links)
       .join("g")
-      .attr("id", (d: any) => `link-group-${d.source.id}-${d.target.id}`);
+      .attr("id", (d: any) => `link-group-${d.source.id}-${d.target.id}`)
+      .on("click", (event) => {
+        if (!readonly) {
+          event.stopPropagation();
+          setSelectedNodeId(null);
+          setIsConfirmingDelete(false);
+        }
+      });
 
     linkGroup.append("line").attr("class", "link-outline").attr("stroke-linecap", "round");
     linkGroup.append("line").attr("class", "link-core");
+    linkSelectionRef.current = linkGroup;
 
     const nodeGroup = zoomLayer.append("g")
       .attr("class", "nodes-layer")
       .selectAll("g")
       .data(nodes)
-      .join("g");
+      .join("g")
+      .style("cursor", readonly ? "default" : "pointer")
+      .on("click", (event, d) => {
+        if (readonly) return;
+        event.stopPropagation();
+        setSelectedNodeId(d.id);
+        setEditingLabel(d.label);
+      });
       
     if (!readonly) {
       nodeGroup.call(d3.drag<SVGGElement, GraphNode>()
@@ -281,13 +330,14 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       .attr("x", 0)
       .attr("y", readonly ? 22 : 32)
       .attr("text-anchor", "middle")
-      .attr("fill", "#475569")
+      .attr("fill", "#1e293b")
       .attr("font-size", "12px")
-      .attr("font-weight", "500")
+      .attr("font-weight", "600")
       .style("pointer-events", "none")
       .clone(true).lower()
       .attr("stroke", "white")
-      .attr("stroke-width", readonly ? 1.5 : 3);
+      .attr("stroke-width", readonly ? 1.5 : 4)
+      .attr("stroke-opacity", 0.9);
 
     const badgeGroup = nodeGroup.append("g")
       .attr("class", "node-badge")
@@ -296,31 +346,10 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
 
     badgeGroup.append("circle").attr("r", readonly ? 5 : 8).attr("stroke", "#fff").attr("stroke-width", 1.5);
     if (!readonly) badgeGroup.append("text").attr("text-anchor", "middle").attr("dy", 3).attr("font-size", "10px").attr("font-weight", "bold");
+    
+    nodeSelectionRef.current = nodeGroup;
 
     if (!readonly) zoomLayer.append("g").attr("class", "anim-layer");
-
-    const updateStyles = () => {
-       linkGroup.each(function(d) {
-         const visuals = getLinkVisuals(d);
-         const g = d3.select(this);
-         g.select(".link-outline").attr("stroke", visuals.outlineColor!).attr("stroke-width", visuals.outlineWidth!);
-         g.select(".link-core").attr("stroke", visuals.mainColor!).attr("stroke-width", visuals.width!).attr("stroke-opacity", visuals.opacity!);
-       });
-
-       nodeGroup.each(function(d) {
-         const visuals = getNodeVisuals(d);
-         const g = d3.select(this);
-         g.select(".node-circle").attr("r", visuals.radius!).attr("fill", visuals.fill!).attr("stroke", visuals.stroke!).attr("stroke-width", visuals.strokeWidth!);
-         const badge = g.select(".node-badge");
-         if (visuals.badge) {
-            badge.style("display", "block");
-            badge.select("circle").attr("fill", visuals.badge.color || "red");
-            if(!readonly) badge.select("text").text(visuals.badge.text || "!").attr("fill", visuals.badge.textColor || "white");
-         } else {
-            badge.style("display", "none");
-         }
-       });
-    };
 
     const ticked = () => {
       linkGroup.selectAll("line")
@@ -333,9 +362,9 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
       
       updateStyles();
       if (!readonly) {
-        // Use dimensions from state to ensure minimap matches current visible area during transitions
         renderMinimapNodes(nodes, links, wrapperRef.current?.clientWidth || width, wrapperRef.current?.clientHeight || height);
         updateMinimap(lastTransformRef.current, wrapperRef.current?.clientWidth || width, wrapperRef.current?.clientHeight || height);
+        setDimensions(d => ({...d}));
       }
     };
 
@@ -346,29 +375,27 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
         ticked();
         simulation.stop();
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        let hasNodes = false;
         nodes.forEach(n => {
             if (n.x !== undefined && n.y !== undefined) {
-                hasNodes = true;
                 minX = Math.min(minX, n.x);
                 maxX = Math.max(maxX, n.x);
                 minY = Math.min(minY, n.y);
                 maxY = Math.max(maxY, n.y);
             }
         });
-        if (hasNodes) {
-          const padding = 40;
-          const fitWidth = Math.max(maxX - minX, 100);
-          const fitHeight = Math.max(maxY - minY, 100);
-          const scale = Math.min((width - padding) / fitWidth, (height - padding) / fitHeight, 1.2);
-          const centerX = (minX + maxX) / 2;
-          const centerY = (minY + maxY) / 2;
-          zoomLayer.attr("transform", `translate(${width/2}, ${height/2}) scale(${scale}) translate(${-centerX}, ${-centerY})`);
-        }
+        const padding = 40;
+        const fitWidth = Math.max(maxX - minX, 100);
+        const fitHeight = Math.max(maxY - minY, 100);
+        const scale = Math.min((width - padding) / fitWidth, (height - padding) / fitHeight, 1.2);
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        zoomLayer.attr("transform", `translate(${width/2}, ${height/2}) scale(${scale}) translate(${-centerX}, ${-centerY})`);
     }
 
     function dragstarted(event: any) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
+      setSelectedNodeId(event.subject.id);
+      setEditingLabel(event.subject.label);
       nodesRef.current.forEach(n => { n.fx = n.x; n.fy = n.y; });
       event.subject.fx = event.subject.x;
       event.subject.fy = event.subject.y;
@@ -387,7 +414,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
     return () => {
       simulation.stop();
     };
-  }, [data, theme, readonly, onNodeDragEnd]); 
+  }, [data, theme, readonly, onNodeDragEnd, updateStyles]); 
 
   useImperativeHandle(ref, () => ({
     runAnimation: (sequence: EventSequence) => {
@@ -426,11 +453,22 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
           const travelDuration = atomicStep.duration || linkAnimConfig.duration || 1;
 
           const packet = animLayer.append("circle").attr("r", packetRadius).attr("fill", packetColor).attr("stroke", "#fff").attr("stroke-width", 2).attr("cx", sourceNode.x!).attr("cy", sourceNode.y!).attr("opacity", 0);
+          
+          // Phase 1: START of animation
           tl.to(`#node-${sourceNode.id}`, { attr: { r: 24 }, duration: 0.2, yoyo: true, repeat: 1 }, 0);
           tl.to(packet.node(), { opacity: 1, duration: 0.1 }, 0);
-          tl.to(packet.node(), { attr: { cx: targetNode.x!, cy: targetNode.y! }, duration: travelDuration, ease: "power1.inOut", onComplete: () => packet.remove() }, 0);
+          
+          // Phase 2: TRAVEL
+          tl.to(packet.node(), { 
+            attr: { cx: targetNode.x!, cy: targetNode.y! }, 
+            duration: travelDuration, 
+            ease: "power1.inOut", 
+            onComplete: () => packet.remove() 
+          }, 0);
 
+          // Phase 3: END of animation (impact & results)
           tl.add(() => {
+             // 1. Apply link style AFTER travel finishes
              if (atomicStep.linkStyle) {
                 const linkGroupId = `#link-group-${atomicStep.from}-${atomicStep.to}`;
                 const reverseGroupId = `#link-group-${atomicStep.to}-${atomicStep.from}`;
@@ -442,23 +480,20 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
                     if (!linkDatum.activeStates) linkDatum.activeStates = [];
                     if (!linkDatum.activeStates.includes(atomicStep.linkStyle)) linkDatum.activeStates.push(atomicStep.linkStyle);
                   }
-                  const visuals = getLinkVisuals(linkDatum);
-                  linkGroupSelection.select(".link-outline").attr("stroke", visuals.outlineColor!).attr("stroke-width", visuals.outlineWidth!);
-                  linkGroupSelection.select(".link-core").attr("stroke", visuals.mainColor!).attr("stroke-width", visuals.width!).attr("stroke-opacity", visuals.opacity!);
                 }
              }
+
+             // 2. Apply target node state AFTER travel finishes
              if (atomicStep.targetNodeState) {
                 const nodeDatum = d3.select(`#node-group-${targetNode.id}`).datum() as GraphNode;
                 if (nodeDatum) {
                    if (!nodeDatum.activeStates) nodeDatum.activeStates = [];
                    if (!nodeDatum.activeStates.includes(atomicStep.targetNodeState)) nodeDatum.activeStates.push(atomicStep.targetNodeState);
-                   const visuals = getNodeVisuals(nodeDatum);
-                   const g = d3.select(`#node-group-${targetNode.id}`);
-                   g.select(".node-circle").attr("fill", visuals.fill!).attr("stroke", visuals.stroke!).attr("stroke-width", visuals.strokeWidth!);
-                   const badge = g.select(".node-badge");
-                   if (visuals.badge) { badge.style("display", "block").select("circle").attr("fill", visuals.badge.color || "red"); badge.select("text").text(visuals.badge.text || "!"); }
                 }
              }
+             
+             // 3. Force view refresh once
+             updateStyles();
           }, travelDuration);
 
           if (nodeAnimConfig.scale || nodeAnimConfig.durationIn) {
@@ -476,9 +511,89 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ data, the
     }
   }));
 
+  // Floating Menu Positioning
+  const getMenuPosition = () => {
+    if (!selectedNode || !svgRef.current) return null;
+    const t = lastTransformRef.current;
+    const x = selectedNode.x! * t.k + t.x;
+    const y = selectedNode.y! * t.k + t.y;
+    return { x, y };
+  };
+
+  const pos = getMenuPosition();
+  const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
+
   return (
     <div ref={wrapperRef} className="w-full h-full relative bg-slate-50 overflow-hidden">
       <svg ref={svgRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
+      
+      {/* Floating Node Editor */}
+      {selectedNode && !readonly && pos && (
+        <div 
+          className="absolute z-50 pointer-events-none flex flex-col items-center"
+          style={{ 
+            left: pos.x, 
+            top: pos.y - 60, 
+            transform: 'translateX(-50%)'
+          }}
+        >
+          <div className="bg-white/95 backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-200 rounded-2xl p-1 pointer-events-auto flex items-center gap-1 animate-in zoom-in-95 duration-200">
+            <input 
+              autoFocus
+              className="px-3 py-1.5 text-sm font-semibold text-slate-800 bg-transparent border-none focus:ring-0 w-32 outline-none"
+              value={editingLabel}
+              onChange={(e) => {
+                setEditingLabel(e.target.value);
+                if (onNodeUpdate) onNodeUpdate({ ...selectedNode, label: e.target.value });
+              }}
+              onKeyDown={(e) => { if(e.key === 'Enter') setSelectedNodeId(null); }}
+            />
+            
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            
+            <div className="flex gap-1 px-1">
+              {groupColors.map((color, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => onNodeUpdate?.({ ...selectedNode, group: idx })}
+                  className={`w-4 h-4 rounded-full transition-transform hover:scale-125 ${selectedNode.group === idx ? 'ring-2 ring-slate-400 ring-offset-1 scale-110' : ''}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isConfirmingDelete) {
+                  onNodeDelete?.(selectedNode.id);
+                  setSelectedNodeId(null);
+                } else {
+                  setIsConfirmingDelete(true);
+                }
+              }}
+              className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${
+                isConfirmingDelete ? 'bg-red-500 text-white' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'
+              }`}
+            >
+              {isConfirmingDelete ? <Check className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+            </button>
+            
+            {isConfirmingDelete && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(false); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="w-3 h-3 bg-white border-r border-b border-slate-200 rotate-45 -mt-1.5 shadow-[2px_2px_5px_rgba(0,0,0,0.02)]" />
+        </div>
+      )}
+
       {!readonly && (
         <>
           <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border border-slate-200 text-xs text-slate-500 pointer-events-none">

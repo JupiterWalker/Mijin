@@ -18,8 +18,6 @@ interface EditorProps {
   onBack: () => void;
 }
 
-// --- WEBSTORM-LIKE JSON EDITOR WITH LINE-ALIGNED COLOR GUTTER ---
-
 const JsonTreeEditor: React.FC<{
   value: string;
   onChange: (val: string) => void;
@@ -28,7 +26,6 @@ const JsonTreeEditor: React.FC<{
   const scrollRef = useRef<HTMLDivElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
-  // Parse value to find lines with hex colors
   const linesInfo = useMemo(() => {
     const lines = value.split('\n');
     const hexRegex = /#(?:[0-9a-fA-F]{3,4}){1,2}\b/;
@@ -48,7 +45,6 @@ const JsonTreeEditor: React.FC<{
     onChange(lines.join('\n'));
   };
 
-  // Synchronize scroll between gutter and editor
   const handleEditorScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (gutterRef.current) {
       gutterRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
@@ -57,7 +53,6 @@ const JsonTreeEditor: React.FC<{
 
   return (
     <div className="flex rounded-lg border border-slate-700 bg-[#282c34] overflow-hidden shadow-2xl relative">
-      {/* WebStorm Style Color Gutter */}
       <div 
         ref={gutterRef}
         className="w-8 bg-[#1e2227] border-r border-slate-800 flex flex-col items-center no-scrollbar pointer-events-none"
@@ -87,8 +82,6 @@ const JsonTreeEditor: React.FC<{
           ))}
         </div>
       </div>
-
-      {/* Main Editor */}
       <div className="flex-1 min-w-0" onScroll={handleEditorScroll}>
         <CodeMirror
           value={value}
@@ -110,8 +103,6 @@ const JsonTreeEditor: React.FC<{
   );
 };
 
-// --- COLLAPSIBLE SECTION ---
-
 const CollapsibleSection: React.FC<{
   title: string;
   icon: React.ReactNode;
@@ -121,7 +112,6 @@ const CollapsibleSection: React.FC<{
   children: React.ReactNode;
 }> = ({ title, icon, actions, error, defaultOpen = false, children }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
-
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm mb-4 transition-all">
       <div 
@@ -135,11 +125,8 @@ const CollapsibleSection: React.FC<{
           {icon}
           <span>{title}</span>
         </div>
-        <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
-          {actions}
-        </div>
+        <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>{actions}</div>
       </div>
-      
       {isOpen && (
         <div className="p-4 bg-white space-y-3 animate-in fade-in duration-300">
           {children}
@@ -155,21 +142,16 @@ const CollapsibleSection: React.FC<{
   );
 };
 
-// --- MAIN EDITOR ---
-
 const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const [devMode, setDevMode] = useState(true);
   const [projectName, setProjectName] = useState(initialProject.name);
-  
   const [mountGraphData] = useState<GraphData>(JSON.parse(JSON.stringify(initialProject.graphData)));
   const [graphData, setGraphData] = useState<GraphData>(initialProject.graphData);
   const [themeData, setThemeData] = useState<ThemeConfig>(initialProject.themeData);
   const [eventData, setEventData] = useState<EventSequence>(initialProject.eventData);
-
   const [graphJson, setGraphJson] = useState<string>(JSON.stringify(initialProject.graphData, null, 2));
   const [themeJson, setThemeJson] = useState<string>(JSON.stringify(initialProject.themeData, null, 2));
   const [eventJson, setEventJson] = useState<string>(JSON.stringify(initialProject.eventData, null, 2));
-
   const [errors, setErrors] = useState({ graph: '', theme: '', event: '' });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isDirty, setIsDirty] = useState(false);
@@ -181,32 +163,17 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const btnSecondaryClass = "px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-[10px] font-semibold rounded transition-colors flex items-center shadow-sm active:scale-95";
 
   useEffect(() => {
-    if (isFirstRender.current) {
-        isFirstRender.current = false;
-        return;
-    }
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     setIsDirty(true);
     if (saveStatus === 'saved') setSaveStatus('idle');
   }, [graphData, themeData, eventData, projectName]);
 
   const handleManualSave = () => {
     setSaveStatus('saving');
-    const updatedProject: GraphProject = {
-        ...initialProject,
-        name: projectName,
-        graphData,
-        themeData,
-        eventData,
-        updatedAt: Date.now()
-    };
+    const updatedProject: GraphProject = { ...initialProject, name: projectName, graphData, themeData, eventData, updatedAt: Date.now() };
     onSave(updatedProject);
-    setTimeout(() => {
-        setSaveStatus('saved');
-        setIsDirty(false);
-    }, 500);
-    setTimeout(() => {
-        setSaveStatus(prev => prev === 'saved' ? 'idle' : prev); 
-    }, 2500);
+    setTimeout(() => { setSaveStatus('saved'); setIsDirty(false); }, 500);
+    setTimeout(() => { setSaveStatus(prev => prev === 'saved' ? 'idle' : prev); }, 2500);
   };
 
   const handleApply = (type: 'graph' | 'theme' | 'event', jsonText: string, setter: Function) => {
@@ -216,9 +183,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       if (type === 'event' && !Array.isArray(parsed.steps)) throw new Error("Missing steps array");
       setter(parsed);
       setErrors(prev => ({ ...prev, [type]: '' }));
-    } catch (e: any) {
-      setErrors(prev => ({ ...prev, [type]: e.message }));
-    }
+    } catch (e: any) { setErrors(prev => ({ ...prev, [type]: e.message })); }
   };
 
   const handleResetData = () => {
@@ -237,11 +202,8 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
 
   const handleUpdate = (nodes: GraphNode[], links: GraphLink[]) => {
     const cleanNodes = nodes.map(n => ({
-      id: n.id,
-      label: n.label,
-      group: n.group,
-      x: Math.round(n.x ?? 0),
-      y: Math.round(n.y ?? 0),
+      id: n.id, label: n.label, group: n.group,
+      x: Math.round(n.x ?? 0), y: Math.round(n.y ?? 0),
       activeStates: n.activeStates
     }));
     const cleanLinks = links.map(l => ({
@@ -254,146 +216,72 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     setGraphJson(JSON.stringify(newData, null, 2));
   };
 
+  const handleNodeDelete = (nodeId: string) => {
+    const filteredNodes = graphData.nodes.filter(n => n.id !== nodeId);
+    const filteredLinks = graphData.links.filter(l => {
+      const sourceId = (l.source as any).id || l.source;
+      const targetId = (l.target as any).id || l.target;
+      return sourceId !== nodeId && targetId !== nodeId;
+    });
+    const newData = { nodes: filteredNodes, links: filteredLinks };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleNodeUpdateSingle = (updatedNode: GraphNode) => {
+    const newNodes = graphData.nodes.map(n => n.id === updatedNode.id ? updatedNode : n);
+    const newData = { ...graphData, nodes: newNodes };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
   return (
     <div className="flex h-screen w-full bg-slate-100 overflow-hidden relative">
-      
-      {/* Main View Area */}
       <div className={`relative flex-1 h-full transition-all duration-300 ease-in-out ${devMode ? 'mr-[400px]' : 'mr-0'}`}>
         <div className="absolute top-0 left-0 right-0 z-10 p-4 flex justify-between items-start pointer-events-none">
           <div className="bg-white/90 backdrop-blur shadow-sm border border-slate-200 rounded-xl p-2 pointer-events-auto flex items-center space-x-3 pr-4">
-            <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
-                <ArrowLeft className="w-5 h-5" />
-            </button>
+            <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div className="h-6 w-px bg-slate-300"></div>
-            
-            <input 
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                className="bg-transparent font-bold text-slate-800 focus:outline-none focus:bg-slate-100 rounded px-2 py-1 text-sm w-48"
-                placeholder="Project Name"
-            />
-            
-            <button 
-                onClick={handleManualSave}
-                disabled={!isDirty || saveStatus === 'saving'}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    isDirty 
-                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm' 
-                        : 'bg-slate-100 text-slate-400 cursor-default'
-                }`}
-            >
+            <input value={projectName} onChange={(e) => setProjectName(e.target.value)} className="bg-transparent font-bold text-slate-800 focus:outline-none focus:bg-slate-100 rounded px-2 py-1 text-sm w-48" placeholder="Project Name" />
+            <button onClick={handleManualSave} disabled={!isDirty || saveStatus === 'saving'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${isDirty ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm' : 'bg-slate-100 text-slate-400 cursor-default'}`}>
                 <Save className="w-3.5 h-3.5" />
                 {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
             </button>
-            
             <div className="h-6 w-px bg-slate-300"></div>
             <Toggle checked={devMode} onChange={setDevMode} label="Dev Mode" />
           </div>
         </div>
-
         <GraphCanvas 
           key={canvasKey}
           ref={canvasRef} 
           data={graphData} 
           theme={themeData}
           onNodeDragEnd={(nodes) => handleUpdate(nodes, graphData.links)}
+          onNodeDelete={handleNodeDelete}
+          onNodeUpdate={handleNodeUpdateSingle}
           onSimulationEnd={handleUpdate}
         />
       </div>
-
-      {/* Configuration Sidebar */}
-      <div 
-        className={`fixed top-0 right-0 h-full w-[400px] bg-slate-50 shadow-2xl transform transition-transform duration-300 ease-in-out z-20 flex flex-col border-l border-slate-200 ${
-          devMode ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
+      <div className={`fixed top-0 right-0 h-full w-[400px] bg-slate-50 shadow-2xl transform transition-transform duration-300 ease-in-out z-20 flex flex-col border-l border-slate-200 ${devMode ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-          <div className="flex items-center space-x-2 text-slate-800">
-            <Settings className="w-5 h-5 text-indigo-600" />
-            <h2 className="font-bold text-lg tracking-tight">Developer Tools</h2>
-          </div>
-          <button onClick={() => setDevMode(false)} className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
-             <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2 text-slate-800"><Settings className="w-5 h-5 text-indigo-600" /><h2 className="font-bold text-lg tracking-tight">Developer Tools</h2></div>
+          <button onClick={() => setDevMode(false)} className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
         </div>
-
         <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-slate-50/50">
-          
-          <CollapsibleSection 
-            title="Graph Topology" 
-            icon={<Code2 className="w-4 h-4 text-sky-500" />}
-            defaultOpen={true}
-            actions={
-              <>
-                <button onClick={handleResetData} className={btnSecondaryClass}>
-                  <RotateCcw className="w-3 h-3 mr-1" /> Reset
-                </button>
-                <button onClick={() => handleApply('graph', graphJson, setGraphData)} className={btnPrimaryClass}>
-                  Apply
-                </button>
-              </>
-            }
-            error={errors.graph}
-          >
-            <JsonTreeEditor 
-              value={graphJson} 
-              onChange={setGraphJson} 
-              height="280px"
-            />
+          <CollapsibleSection title="Graph Topology" icon={<Code2 className="w-4 h-4 text-sky-500" />} defaultOpen={true} actions={<><button onClick={handleResetData} className={btnSecondaryClass}><RotateCcw className="w-3 h-3 mr-1" /> Reset</button><button onClick={() => handleApply('graph', graphJson, setGraphData)} className={btnPrimaryClass}>Apply</button></>} error={errors.graph}>
+            <JsonTreeEditor value={graphJson} onChange={setGraphJson} height="280px" />
           </CollapsibleSection>
-
-          <CollapsibleSection 
-            title="Visual Theme" 
-            icon={<Palette className="w-4 h-4 text-pink-500" />}
-            actions={
-              <button onClick={() => handleApply('theme', themeJson, setThemeData)} className={btnPrimaryClass}>
-                Apply Theme
-              </button>
-            }
-            error={errors.theme}
-          >
-            <JsonTreeEditor 
-              value={themeJson} 
-              onChange={setThemeJson} 
-              height="280px"
-            />
-            <p className="text-[10px] text-slate-400 italic px-1 flex items-center gap-1">
-              <Pipette className="w-3 h-3" /> Click color swatches in the gutter to edit.
-            </p>
+          <CollapsibleSection title="Visual Theme" icon={<Palette className="w-4 h-4 text-pink-500" />} actions={<button onClick={() => handleApply('theme', themeJson, setThemeData)} className={btnPrimaryClass}>Apply Theme</button>} error={errors.theme}>
+            <JsonTreeEditor value={themeJson} onChange={setThemeJson} height="280px" />
+            <p className="text-[10px] text-slate-400 italic px-1 flex items-center gap-1"><Pipette className="w-3 h-3" /> Click color swatches in the gutter to edit.</p>
           </CollapsibleSection>
-
-          <CollapsibleSection 
-            title="Animation Script" 
-            icon={<Activity className="w-4 h-4 text-emerald-500" />}
-            actions={
-              <button onClick={() => handleApply('event', eventJson, setEventData)} className={btnSecondaryClass}>
-                Update
-              </button>
-            }
-            error={errors.event}
-          >
-            <JsonTreeEditor 
-              value={eventJson} 
-              onChange={setEventJson} 
-              height="200px"
-            />
-            <button 
-              onClick={() => canvasRef.current?.runAnimation(eventData)}
-              disabled={!!errors.event}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white py-2.5 rounded-xl font-bold text-xs flex justify-center items-center shadow-lg shadow-indigo-200 transition-all active:scale-[0.98] mt-2 group"
-            >
-              <Play className="w-3.5 h-3.5 mr-2 fill-current" />
-              Run Simulation
-            </button>
+          <CollapsibleSection title="Animation Script" icon={<Activity className="w-4 h-4 text-emerald-500" />} actions={<button onClick={() => handleApply('event', eventJson, setEventData)} className={btnSecondaryClass}>Update</button>} error={errors.event}>
+            <JsonTreeEditor value={eventJson} onChange={setEventJson} height="200px" />
+            <button onClick={() => canvasRef.current?.runAnimation(eventData)} disabled={!!errors.event} className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white py-2.5 rounded-xl font-bold text-xs flex justify-center items-center shadow-lg shadow-indigo-200 transition-all active:scale-[0.98] mt-2 group"><Play className="w-3.5 h-3.5 mr-2 fill-current" />Run Simulation</button>
           </CollapsibleSection>
-
         </div>
-
         <div className="p-4 bg-white border-t border-slate-200">
-           <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium px-1 uppercase tracking-widest">
-              <span>GraphFlow Engine v2.0</span>
-              <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> Live Sync</span>
-           </div>
+           <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium px-1 uppercase tracking-widest"><span>GraphFlow Engine v2.0</span><span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> Live Sync</span></div>
         </div>
       </div>
     </div>
