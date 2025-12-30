@@ -9,7 +9,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { 
   Settings, Play, AlertCircle, Code2, Activity, 
   RotateCcw, Palette, ArrowLeft, X, Save, ChevronDown, Pipette, 
-  Plus, History
+  Plus, History, Link as LinkIcon
 } from 'lucide-react';
 
 interface EditorProps {
@@ -144,6 +144,7 @@ const CollapsibleSection: React.FC<{
 
 const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const [devMode, setDevMode] = useState(true);
+  const [isLinkMode, setIsLinkMode] = useState(false);
   const [projectName, setProjectName] = useState(initialProject.name);
   const [mountGraphData] = useState<GraphData>(JSON.parse(JSON.stringify(initialProject.graphData)));
   const [graphData, setGraphData] = useState<GraphData>(initialProject.graphData);
@@ -168,9 +169,41 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     if (saveStatus === 'saved') setSaveStatus('idle');
   }, [graphData, themeData, eventData, projectName]);
 
+  // Utility to strip D3 internal properties
+  const cleanNodeData = (node: any): GraphNode => {
+    const { fx, fy, vx, vy, index, ...rest } = node;
+    return {
+      id: rest.id,
+      label: rest.label,
+      group: rest.group,
+      x: Math.round(rest.x ?? 0),
+      y: Math.round(rest.y ?? 0),
+      activeStates: rest.activeStates || [],
+      meta_data: rest.meta_data || {}
+    };
+  };
+
+  const cleanLinkData = (link: any): GraphLink => {
+    return {
+      source: (link.source as any).id || link.source,
+      target: (link.target as any).id || link.target,
+      activeStates: link.activeStates || []
+    };
+  };
+
   const handleManualSave = () => {
     setSaveStatus('saving');
-    const updatedProject: GraphProject = { ...initialProject, name: projectName, graphData, themeData, eventData, updatedAt: Date.now() };
+    const updatedProject: GraphProject = { 
+      ...initialProject, 
+      name: projectName, 
+      graphData: {
+        nodes: graphData.nodes.map(cleanNodeData),
+        links: graphData.links.map(cleanLinkData)
+      }, 
+      themeData, 
+      eventData, 
+      updatedAt: Date.now() 
+    };
     onSave(updatedProject);
     setTimeout(() => { setSaveStatus('saved'); setIsDirty(false); }, 500);
     setTimeout(() => { setSaveStatus(prev => prev === 'saved' ? 'idle' : prev); }, 2500);
@@ -179,21 +212,27 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const handleApply = (type: 'graph' | 'theme' | 'event', jsonText: string, setter: Function) => {
     try {
       const parsed = JSON.parse(jsonText);
-      if (type === 'graph' && (!parsed.nodes || !parsed.links)) throw new Error("Missing nodes/links");
-      if (type === 'event' && !Array.isArray(parsed.steps)) throw new Error("Missing steps array");
-      setter(parsed);
+      if (type === 'graph') {
+        if (!parsed.nodes || !parsed.links) throw new Error("Missing nodes/links");
+        const cleaned = {
+          nodes: parsed.nodes.map(cleanNodeData),
+          links: parsed.links.map(cleanLinkData)
+        };
+        setter(cleaned);
+        setGraphJson(JSON.stringify(cleaned, null, 2));
+      } else if (type === 'event') {
+        if (!Array.isArray(parsed.steps)) throw new Error("Missing steps array");
+        setter(parsed);
+      } else {
+        setter(parsed);
+      }
       setErrors(prev => ({ ...prev, [type]: '' }));
     } catch (e: any) { setErrors(prev => ({ ...prev, [type]: e.message })); }
   };
 
   const handleResetData = () => {
-    const resetNodes = mountGraphData.nodes.map(n => ({ ...n, activeStates: [] }));
-    const resetLinks = mountGraphData.links.map(l => ({ 
-      ...l, 
-      source: (l.source as any).id || l.source,
-      target: (l.target as any).id || l.target,
-      activeStates: [] 
-    }));
+    const resetNodes = mountGraphData.nodes.map(cleanNodeData);
+    const resetLinks = mountGraphData.links.map(cleanLinkData);
     const resetData = { nodes: resetNodes, links: resetLinks };
     setGraphData(resetData);
     setGraphJson(JSON.stringify(resetData, null, 2));
@@ -201,17 +240,10 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   };
 
   const handleUpdate = (nodes: GraphNode[], links: GraphLink[]) => {
-    const cleanNodes = nodes.map(n => ({
-      id: n.id, label: n.label, group: n.group,
-      x: Math.round(n.x ?? 0), y: Math.round(n.y ?? 0),
-      activeStates: n.activeStates
-    }));
-    const cleanLinks = links.map(l => ({
-      source: (l.source as any).id || l.source,
-      target: (l.target as any).id || l.target,
-      activeStates: l.activeStates
-    }));
-    const newData = { nodes: cleanNodes, links: cleanLinks };
+    const newData = { 
+      nodes: nodes.map(cleanNodeData), 
+      links: links.map(cleanLinkData) 
+    };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
   };
@@ -223,16 +255,51 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       const targetId = (l.target as any).id || l.target;
       return sourceId !== nodeId && targetId !== nodeId;
     });
-    const newData = { nodes: filteredNodes, links: filteredLinks };
+    const newData = { nodes: filteredNodes.map(cleanNodeData), links: filteredLinks.map(cleanLinkData) };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
   };
 
   const handleNodeUpdateSingle = (updatedNode: GraphNode) => {
-    const newNodes = graphData.nodes.map(n => n.id === updatedNode.id ? updatedNode : n);
+    const cleanUpdate = cleanNodeData(updatedNode);
+    const newNodes = graphData.nodes.map(n => n.id === cleanUpdate.id ? cleanUpdate : n);
     const newData = { ...graphData, nodes: newNodes };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleNodeAdd = (x?: number, y?: number) => {
+    const newId = (Math.max(0, ...graphData.nodes.map(n => parseInt(n.id) || 0)) + 1).toString();
+    const newNode: GraphNode = {
+      id: newId,
+      label: `Node ${newId}`,
+      group: 0,
+      x: x ?? 400,
+      y: y ?? 300,
+      activeStates: [],
+      meta_data: {}
+    };
+    const newData = {
+      ...graphData,
+      nodes: [...graphData.nodes, newNode].map(cleanNodeData)
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleLinkAdd = (sourceId: string, targetId: string) => {
+    const exists = graphData.links.some(l => {
+      const s = (l.source as any).id || l.source;
+      const t = (l.target as any).id || l.target;
+      return (s === sourceId && t === targetId) || (s === targetId && t === sourceId);
+    });
+
+    if (!exists) {
+      const newLinks = [...graphData.links, { source: sourceId, target: targetId, activeStates: [] }];
+      const newData = { ...graphData, links: newLinks.map(cleanLinkData) };
+      setGraphData(newData);
+      setGraphJson(JSON.stringify(newData, null, 2));
+    }
   };
 
   return (
@@ -243,6 +310,25 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div className="h-6 w-px bg-slate-300"></div>
             <input value={projectName} onChange={(e) => setProjectName(e.target.value)} className="bg-transparent font-bold text-slate-800 focus:outline-none focus:bg-slate-100 rounded px-2 py-1 text-sm w-48" placeholder="Project Name" />
+            
+            <button 
+              onClick={() => handleNodeAdd()} 
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border border-indigo-200"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              添加节点
+            </button>
+
+            <div className="h-6 w-px bg-slate-200"></div>
+
+            <Toggle 
+              checked={isLinkMode} 
+              onChange={setIsLinkMode} 
+              label={isLinkMode ? "连线开启" : "连接模式"} 
+            />
+
+            <div className="h-6 w-px bg-slate-300"></div>
+
             <button onClick={handleManualSave} disabled={!isDirty || saveStatus === 'saving'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${isDirty ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm' : 'bg-slate-100 text-slate-400 cursor-default'}`}>
                 <Save className="w-3.5 h-3.5" />
                 {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
@@ -256,9 +342,12 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           ref={canvasRef} 
           data={graphData} 
           theme={themeData}
+          isLinkMode={isLinkMode}
           onNodeDragEnd={(nodes) => handleUpdate(nodes, graphData.links)}
           onNodeDelete={handleNodeDelete}
           onNodeUpdate={handleNodeUpdateSingle}
+          onNodeAdd={handleNodeAdd}
+          onLinkAdd={handleLinkAdd}
           onSimulationEnd={handleUpdate}
         />
       </div>

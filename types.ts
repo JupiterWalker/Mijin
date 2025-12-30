@@ -12,6 +12,8 @@ export interface GraphNode {
   index?: number;
   // State properties: Array of style names applied to this node
   activeStates?: string[];
+  // Flexible metadata for user-defined properties
+  meta_data?: Record<string, any>;
 }
 
 export interface GraphLink {
