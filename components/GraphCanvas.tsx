@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import gsap from 'gsap';
-import { Pencil, Trash2, Check, X, Palette, Trash, Plus, Link as LinkIcon, Link2Off, ChevronDown, ChevronUp, Database, CornerDownLeft } from 'lucide-react';
+import { Pencil, Trash2, Check, X, Palette, Trash, Plus, Link as LinkIcon, Link2Off, ChevronDown, ChevronUp, Database, CornerDownLeft, MousePointer2 } from 'lucide-react';
 import { GraphData, GraphNode, GraphLink, EventSequence, ThemeConfig, SimulationAction, AtomicStep, ParallelStep } from '../types';
 
 interface GraphCanvasProps {
@@ -10,6 +10,8 @@ interface GraphCanvasProps {
   theme: ThemeConfig;
   readonly?: boolean;
   isLinkMode?: boolean;
+  directorPicking?: 'source' | 'target' | null;
+  onDirectorPick?: (nodeId: string) => void;
   onNodeDragEnd?: (nodes: GraphNode[]) => void;
   onNodeDelete?: (nodeId: string) => void;
   onNodeUpdate?: (node: GraphNode) => void;
@@ -21,6 +23,7 @@ interface GraphCanvasProps {
 
 export interface GraphCanvasHandle {
   runAnimation: (sequence: EventSequence) => void;
+  runSingleStep: (step: SimulationAction) => void;
 }
 
 const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({ 
@@ -28,6 +31,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   theme, 
   readonly = false, 
   isLinkMode = false,
+  directorPicking = null,
+  onDirectorPick,
   onNodeDragEnd, 
   onNodeDelete,
   onNodeUpdate,
@@ -111,10 +116,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   const getNodeVisuals = useCallback((node: GraphNode) => {
     const isLinkingSource = linkingSourceId === node.id;
     const isSelected = selectedNodeId === node.id;
+    const isDirectorSource = directorPicking === 'target' && linkingSourceId === node.id;
+    
     let visuals = {
       fill: "#fff", 
-      stroke: isSelected ? (isConfirmingDelete ? "#ef4444" : "#6366f1") : (isLinkingSource ? "#10b981" : "#fff"),
-      strokeWidth: isSelected ? 4 : (isLinkingSource ? 4 : 2),
+      stroke: isSelected ? (isConfirmingDelete ? "#ef4444" : "#6366f1") : (isLinkingSource ? "#10b981" : (isDirectorSource ? "#a855f7" : "#fff")),
+      strokeWidth: isSelected ? 4 : (isLinkingSource || isDirectorSource ? 4 : 2),
       radius: readonly ? 12 : 20,
       badge: null as { text?: string, color?: string, textColor?: string } | null
     };
@@ -134,7 +141,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       });
     }
     return visuals;
-  }, [selectedNodeId, linkingSourceId, theme.nodeStyles, readonly, isConfirmingDelete]);
+  }, [selectedNodeId, linkingSourceId, theme.nodeStyles, readonly, isConfirmingDelete, directorPicking]);
 
   const getLinkVisuals = useCallback((link: GraphLink) => {
     const sId = (link.source as any).id || link.source;
@@ -210,6 +217,67 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     return () => observer.disconnect();
   }, []);
 
+  const createStepTimeline = useCallback((step: SimulationAction, animLayer: d3.Selection<any, any, any, any>, masterTl: gsap.core.Timeline) => {
+    const tl = gsap.timeline({ delay: step.delay || 0 });
+    const svg = d3.select(svgRef.current);
+
+    if (step.type === 'parallel') {
+      (step as ParallelStep).steps.forEach((subStep) => tl.add(createStepTimeline(subStep, animLayer, masterTl), 0));
+    } else {
+      const atomicStep = step as AtomicStep;
+      const sourceNode = nodesRef.current.find(n => n.id === atomicStep.from);
+      const targetNode = nodesRef.current.find(n => n.id === atomicStep.to);
+      if (!sourceNode || !targetNode) return tl;
+
+      const linkStyleDef = atomicStep.linkStyle ? theme.linkStyles[atomicStep.linkStyle] : null;
+      const linkAnimConfig = linkStyleDef?.animation || {};
+      const nodeStyleDef = atomicStep.targetNodeState ? theme.nodeStyles[atomicStep.targetNodeState] : null;
+      const nodeAnimConfig = nodeStyleDef?.animation || {};
+      const packetColor = linkAnimConfig.packetColor || "#ef4444";
+      const packetRadius = linkAnimConfig.packetRadius || 6;
+      const travelDuration = atomicStep.duration || linkAnimConfig.duration || 1;
+
+      const packet = animLayer.append("circle").attr("r", packetRadius).attr("fill", packetColor).attr("stroke", "#fff").attr("stroke-width", 2).attr("cx", sourceNode.x!).attr("cy", sourceNode.y!).attr("opacity", 0);
+      
+      tl.to(`#node-${sourceNode.id}`, { attr: { r: 24 }, duration: 0.2, yoyo: true, repeat: 1 }, 0);
+      tl.to(packet.node(), { opacity: 1, duration: 0.1 }, 0);
+      tl.to(packet.node(), { attr: { cx: targetNode.x!, cy: targetNode.y! }, duration: travelDuration, ease: "power1.inOut", onComplete: () => packet.remove() }, 0);
+
+      tl.add(() => {
+         if (atomicStep.linkStyle) {
+            const linkGroupId = `#link-group-${atomicStep.from}-${atomicStep.to}`;
+            const reverseGroupId = `#link-group-${atomicStep.to}-${atomicStep.from}`;
+            let linkGroupSelection = svg.select(linkGroupId);
+            if (linkGroupSelection.empty()) linkGroupSelection = svg.select(reverseGroupId);
+            if (!linkGroupSelection.empty()) {
+              const linkDatum = linkGroupSelection.datum() as GraphLink;
+              if (linkDatum) {
+                if (!linkDatum.activeStates) linkDatum.activeStates = [];
+                if (!linkDatum.activeStates.includes(atomicStep.linkStyle)) linkDatum.activeStates.push(atomicStep.linkStyle);
+              }
+            }
+         }
+         if (atomicStep.targetNodeState) {
+            const nodeDatum = d3.select(`#node-group-${targetNode.id}`).datum() as GraphNode;
+            if (nodeDatum) {
+               if (!nodeDatum.activeStates) nodeDatum.activeStates = [];
+               if (!nodeDatum.activeStates.includes(atomicStep.targetNodeState)) nodeDatum.activeStates.push(atomicStep.targetNodeState);
+            }
+         }
+         updateStyles();
+      }, travelDuration);
+
+      if (nodeAnimConfig.scale || nodeAnimConfig.durationIn) {
+          const targetSelector = `#node-${targetNode.id}`;
+          const animDuration = nodeAnimConfig.durationIn || 0.3;
+          const animVars: any = { duration: animDuration, yoyo: true, repeat: 1, ease: "back.out(1.7)" };
+          if (nodeAnimConfig.scale) animVars.attr = { r: 20 * nodeAnimConfig.scale };
+          tl.to(targetSelector, animVars, travelDuration);
+      }
+    }
+    return tl;
+  }, [theme, updateStyles]);
+
   // Main Draw Loop
   useEffect(() => {
     if (!svgRef.current || !wrapperRef.current) return;
@@ -219,7 +287,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
     
-    // Background click handler to deselect
+    // Background click handler
     svg.append("rect")
       .attr("width", "100%")
       .attr("height", "100%")
@@ -227,8 +295,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       .attr("class", "canvas-bg")
       .on("click", (event) => {
         if (readonly) return;
-        // Check if the actual click target is the background rect
         if (event.target.classList.contains('canvas-bg')) {
+          if (directorPicking) return;
           setSelectedNodeId(null);
           setSelectedLinkId(null);
           setLinkingSourceId(null);
@@ -237,8 +305,14 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
           setIsMetaExpanded(false);
         }
       })
+      .on("mousemove", (event) => {
+        if (linkingSourceId || directorPicking === 'target') {
+          const [mouseX, mouseY] = d3.pointer(event, svgRef.current);
+          setMousePos({ x: mouseX, y: mouseY });
+        }
+      })
       .on("dblclick", (event) => {
-        if (!readonly && onNodeAdd && !isLinkMode) {
+        if (!readonly && onNodeAdd && !isLinkMode && !directorPicking) {
           event.preventDefault();
           const [mouseX, mouseY] = d3.pointer(event, svgRef.current);
           const transform = lastTransformRef.current;
@@ -287,16 +361,34 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       .force("collide", d3.forceCollide().radius(readonly ? 30 : 45));
     simulationRef.current = simulation;
 
+    // Ghost line for linking or director mode
+    const ghostLine = zoomLayer.append("line").attr("class", "ghost-line").attr("stroke", directorPicking ? "#a855f7" : "#10b981").attr("stroke-width", 3).attr("stroke-dasharray", "5,5").style("pointer-events", "none").style("opacity", 0);
+
     // Render Links
-    const linkGroup = zoomLayer.append("g").attr("class", "links-layer").selectAll("g").data(links).join("g").attr("id", (d: any) => `link-group-${d.source.id}-${d.target.id}`).style("cursor", readonly ? "default" : "pointer").on("click", (event, d) => { if (!readonly) { event.stopPropagation(); const sId = (d.source as any).id || d.source; const tId = (d.target as any).id || d.target; setSelectedLinkId(`${sId}-${tId}`); setSelectedNodeId(null); setIsConfirmingDelete(false); } });
+    const linkGroup = zoomLayer.append("g").attr("class", "links-layer").selectAll("g").data(links).join("g").attr("id", (d: any) => `link-group-${d.source.id}-${d.target.id}`).style("cursor", readonly ? "default" : "pointer").on("click", (event, d) => { if (!readonly && !directorPicking) { event.stopPropagation(); const sId = (d.source as any).id || d.source; const tId = (d.target as any).id || d.target; setSelectedLinkId(`${sId}-${tId}`); setSelectedNodeId(null); setIsConfirmingDelete(false); } });
     linkGroup.append("line").attr("class", "link-hitbox").attr("stroke", "transparent").attr("stroke-width", 20);
     linkGroup.append("line").attr("class", "link-outline").attr("stroke-linecap", "round");
     linkGroup.append("line").attr("class", "link-core");
     linkSelectionRef.current = linkGroup;
 
     // Render Nodes
-    const nodeGroup = zoomLayer.append("g").attr("class", "nodes-layer").selectAll("g").data(nodes).join("g").style("cursor", readonly ? "default" : (isLinkMode || linkingSourceId ? "crosshair" : "pointer")).on("click", (event, d) => { if (readonly) return; event.stopPropagation(); if (isLinkMode || linkingSourceId) { if (!linkingSourceId) { setLinkingSourceId(d.id); } else { if (linkingSourceId !== d.id) onLinkAdd?.(linkingSourceId, d.id); setLinkingSourceId(null); } } else { if (selectedNodeId !== d.id) { setSelectedNodeId(d.id); setSelectedLinkId(null); setEditingLabel(d.label); } } });
-    if (!readonly && !isLinkMode && !linkingSourceId) nodeGroup.call(d3.drag<SVGGElement, GraphNode>().on("start", dragstarted).on("drag", dragged).on("end", dragended) as any);
+    const nodeGroup = zoomLayer.append("g").attr("class", "nodes-layer").selectAll("g").data(nodes).join("g").style("cursor", readonly ? "default" : (isLinkMode || linkingSourceId || directorPicking ? "crosshair" : "pointer")).on("click", (event, d) => { 
+      if (readonly) return; 
+      event.stopPropagation(); 
+      if (directorPicking) {
+        onDirectorPick?.(d.id);
+        if (directorPicking === 'source') setLinkingSourceId(d.id);
+        else setLinkingSourceId(null);
+        return;
+      }
+      if (isLinkMode || linkingSourceId) { 
+        if (!linkingSourceId) { setLinkingSourceId(d.id); } 
+        else { if (linkingSourceId !== d.id) onLinkAdd?.(linkingSourceId, d.id); setLinkingSourceId(null); } 
+      } else { 
+        if (selectedNodeId !== d.id) { setSelectedNodeId(d.id); setSelectedLinkId(null); setEditingLabel(d.label); } 
+      } 
+    });
+    if (!readonly && !isLinkMode && !linkingSourceId && !directorPicking) nodeGroup.call(d3.drag<SVGGElement, GraphNode>().on("start", dragstarted).on("drag", dragged).on("end", dragended) as any);
     nodeGroup.attr("id", (d) => `node-group-${d.id}`);
     nodeGroup.append("circle").attr("class", "node-circle").attr("id", (d) => `node-${d.id}`);
     nodeGroup.append("text").text(d => d.label).attr("x", 0).attr("y", readonly ? 22 : 32).attr("text-anchor", "middle").attr("fill", "#1e293b").attr("font-size", "12px").attr("font-weight", "600").style("pointer-events", "none").clone(true).lower().attr("stroke", "white").attr("stroke-width", readonly ? 1.5 : 4).attr("stroke-opacity", 0.9);
@@ -310,16 +402,25 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     const ticked = () => {
       linkGroup.selectAll("line").attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y).attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
       nodeGroup.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
+      
+      if ((linkingSourceId || directorPicking === 'target') && mousePos) {
+        const sourceNode = nodes.find(n => n.id === (linkingSourceId || linkingSourceId));
+        if (sourceNode) {
+          const trans = lastTransformRef.current;
+          const [worldMouseX, worldMouseY] = trans.invert([mousePos.x, mousePos.y]);
+          ghostLine.attr("x1", sourceNode.x!).attr("y1", sourceNode.y!).attr("x2", worldMouseX).attr("y2", worldMouseY).style("opacity", 1);
+        }
+      } else {
+        ghostLine.style("opacity", 0);
+      }
       updateStyles();
     };
     simulation.on("tick", ticked);
 
-    // Initial positioning and fit-to-view for readonly thumbnails
     if (readonly) {
       simulation.tick(200);
       ticked();
       simulation.stop();
-      
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       nodes.forEach(n => {
         if (n.x !== undefined && n.y !== undefined) {
@@ -329,7 +430,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
           maxY = Math.max(maxY, n.y + 50);
         }
       });
-      
       if (nodes.length > 0) {
         const fitWidth = Math.max(maxX - minX, 100);
         const fitHeight = Math.max(maxY - minY, 100);
@@ -345,33 +445,27 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     function dragended(event: any) { if (!event.active) simulation.alphaTarget(0); event.subject.fx = event.x; event.subject.fy = event.y; if (onNodeDragEnd) onNodeDragEnd(nodesRef.current); }
 
     return () => { simulation.stop(); };
-  }, [data, theme, readonly, isLinkMode, linkingSourceId, mousePos, onNodeDragEnd, onNodeAdd, updateStyles, onLinkAdd, dimensions.width, dimensions.height]); 
+  }, [data, theme, readonly, isLinkMode, linkingSourceId, mousePos, onNodeDragEnd, onNodeAdd, updateStyles, onLinkAdd, dimensions.width, dimensions.height, directorPicking, onDirectorPick]); 
 
   useImperativeHandle(ref, () => ({
     runAnimation: (sequence: EventSequence) => {
       if (!svgRef.current || readonly) return;
-
       nodesRef.current.forEach(n => { n.activeStates = []; });
       linksRef.current.forEach(l => { l.activeStates = []; });
-
       if (sequence.initNodes) {
         sequence.initNodes.forEach(init => {
           const node = nodesRef.current.find(n => n.id === init.id);
           if (node) {
             if (!node.activeStates) node.activeStates = [];
-            if (!node.activeStates.includes(init.nodeState)) {
-               node.activeStates.push(init.nodeState);
-            }
+            if (!node.activeStates.includes(init.nodeState)) node.activeStates.push(init.nodeState);
           }
         });
       }
       updateStyles();
-
       const svg = d3.select(svgRef.current);
       let animLayer = svg.select<SVGGElement>(".zoom-layer .anim-layer");
       if (animLayer.empty()) animLayer = svg.select(".zoom-layer").append("g").attr("class", "anim-layer");
       animLayer.raise();
-
       const masterTl = gsap.timeline({
         onComplete: () => {
           if (onSimulationEnd) {
@@ -381,66 +475,16 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
           }
         }
       });
-      
-      const createStepTimeline = (step: SimulationAction): gsap.core.Timeline => {
-        const tl = gsap.timeline({ delay: step.delay || 0 });
-        if (step.type === 'parallel') {
-          (step as ParallelStep).steps.forEach((subStep) => tl.add(createStepTimeline(subStep), 0));
-        } else {
-          const atomicStep = step as AtomicStep;
-          const sourceNode = nodesRef.current.find(n => n.id === atomicStep.from);
-          const targetNode = nodesRef.current.find(n => n.id === atomicStep.to);
-          if (!sourceNode || !targetNode) return tl;
-
-          const linkStyleDef = atomicStep.linkStyle ? theme.linkStyles[atomicStep.linkStyle] : null;
-          const linkAnimConfig = linkStyleDef?.animation || {};
-          const nodeStyleDef = atomicStep.targetNodeState ? theme.nodeStyles[atomicStep.targetNodeState] : null;
-          const nodeAnimConfig = nodeStyleDef?.animation || {};
-          const packetColor = linkAnimConfig.packetColor || "#ef4444";
-          const packetRadius = linkAnimConfig.packetRadius || 6;
-          const travelDuration = atomicStep.duration || linkAnimConfig.duration || 1;
-
-          const packet = animLayer.append("circle").attr("r", packetRadius).attr("fill", packetColor).attr("stroke", "#fff").attr("stroke-width", 2).attr("cx", sourceNode.x!).attr("cy", sourceNode.y!).attr("opacity", 0);
-          
-          tl.to(`#node-${sourceNode.id}`, { attr: { r: 24 }, duration: 0.2, yoyo: true, repeat: 1 }, 0);
-          tl.to(packet.node(), { opacity: 1, duration: 0.1 }, 0);
-          tl.to(packet.node(), { attr: { cx: targetNode.x!, cy: targetNode.y! }, duration: travelDuration, ease: "power1.inOut", onComplete: () => packet.remove() }, 0);
-
-          tl.add(() => {
-             if (atomicStep.linkStyle) {
-                const linkGroupId = `#link-group-${atomicStep.from}-${atomicStep.to}`;
-                const reverseGroupId = `#link-group-${atomicStep.to}-${atomicStep.from}`;
-                let linkGroupSelection = svg.select(linkGroupId);
-                if (linkGroupSelection.empty()) linkGroupSelection = svg.select(reverseGroupId);
-                if (!linkGroupSelection.empty()) {
-                  const linkDatum = linkGroupSelection.datum() as GraphLink;
-                  if (linkDatum) {
-                    if (!linkDatum.activeStates) linkDatum.activeStates = [];
-                    if (!linkDatum.activeStates.includes(atomicStep.linkStyle)) linkDatum.activeStates.push(atomicStep.linkStyle);
-                  }
-                }
-             }
-             if (atomicStep.targetNodeState) {
-                const nodeDatum = d3.select(`#node-group-${targetNode.id}`).datum() as GraphNode;
-                if (nodeDatum) {
-                   if (!nodeDatum.activeStates) nodeDatum.activeStates = [];
-                   if (!nodeDatum.activeStates.includes(atomicStep.targetNodeState)) nodeDatum.activeStates.push(atomicStep.targetNodeState);
-                }
-             }
-             updateStyles();
-          }, travelDuration);
-
-          if (nodeAnimConfig.scale || nodeAnimConfig.durationIn) {
-              const targetSelector = `#node-${targetNode.id}`;
-              const animDuration = nodeAnimConfig.durationIn || 0.3;
-              const animVars: any = { duration: animDuration, yoyo: true, repeat: 1, ease: "back.out(1.7)" };
-              if (nodeAnimConfig.scale) animVars.attr = { r: 20 * nodeAnimConfig.scale };
-              tl.to(targetSelector, animVars, travelDuration);
-          }
-        }
-        return tl;
-      };
-      sequence.steps.forEach((step) => masterTl.add(createStepTimeline(step)));
+      sequence.steps.forEach((step) => masterTl.add(createStepTimeline(step, animLayer, masterTl)));
+    },
+    runSingleStep: (step: SimulationAction) => {
+      if (!svgRef.current || readonly) return;
+      const svg = d3.select(svgRef.current);
+      let animLayer = svg.select<SVGGElement>(".zoom-layer .anim-layer");
+      if (animLayer.empty()) animLayer = svg.select(".zoom-layer").append("g").attr("class", "anim-layer");
+      animLayer.raise();
+      const tl = createStepTimeline(step, animLayer, gsap.timeline());
+      tl.play();
     }
   }));
 
@@ -475,10 +519,18 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     <div ref={wrapperRef} className="w-full h-full relative bg-slate-50 overflow-hidden">
       <style>{`@keyframes deletePulse { 0% { filter: drop-shadow(0 0 2px #ef4444); stroke-width: 4; } 50% { filter: drop-shadow(0 0 10px #ef4444); stroke-width: 6; } 100% { filter: drop-shadow(0 0 2px #ef4444); stroke-width: 4; } } .confirming-delete-anim { animation: deletePulse 1s infinite ease-in-out; stroke: #ef4444 !important; }`}</style>
       <svg ref={svgRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
-      {(isLinkMode || linkingSourceId) && ( <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold animate-bounce z-50 flex items-center gap-2"> <LinkIcon className="w-4 h-4" /> {linkingSourceId ? "点击目标节点以连接" : "选择源节点开始连线"} <button onClick={() => {setLinkingSourceId(null); setMousePos(null);}} className="ml-2 hover:bg-white/20 rounded-full p-0.5"> <X className="w-4 h-4" /> </button> </div> )}
-      {selectedLink && !readonly && !isLinkMode && linkPos && !selectedNode && ( <div className="absolute z-50 pointer-events-auto flex items-center justify-center animate-in zoom-in-95 fade-in duration-200" style={{ left: linkPos.x, top: linkPos.y, transform: 'translate(-50%, -50%)' }}> <button onClick={(e) => { e.stopPropagation(); const s = (selectedLink.source as any).id || selectedLink.source; const t = (selectedLink.target as any).id || selectedLink.target; onLinkDelete?.(s, t); setSelectedLinkId(null); }} className="bg-white p-2.5 rounded-full shadow-xl border border-slate-200 text-red-500 hover:bg-red-50 hover:scale-110 active:scale-95 transition-all group" title="删除连接 (Del)"> <Trash2 className="w-5 h-5" /> </button> </div> )}
-      {selectedNode && !readonly && !isLinkMode && !linkingSourceId && pos && ( <div className="absolute z-50 pointer-events-none flex flex-col items-center" style={{ left: pos.x, top: pos.y - 35, transform: 'translate(-50%, -100%)' }}> <div className={`bg-white/95 backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.12)] border rounded-2xl p-1 pointer-events-auto flex flex-col items-stretch animate-in zoom-in-95 fade-in duration-200 w-auto min-w-[280px] transition-colors ${isConfirmingDelete ? 'border-red-400 bg-red-50/95' : 'border-slate-200'}`}> <div className="flex items-center gap-1 p-0.5"> <input autoFocus className={`px-3 py-1.5 text-sm font-semibold text-slate-800 bg-transparent border-none focus:ring-0 w-24 outline-none ${isConfirmingDelete ? 'opacity-50' : ''}`} value={editingLabel} disabled={isConfirmingDelete} onChange={(e) => { setEditingLabel(e.target.value); if (onNodeUpdate) onNodeUpdate({ ...selectedNode, label: e.target.value }); }} onKeyDown={(e) => { if(e.key === 'Enter') setSelectedNodeId(null); }} onMouseDown={(e) => e.stopPropagation()} /> <div className="w-px h-6 bg-slate-200 mx-1" /> <div className={`flex gap-1 px-1 ${isConfirmingDelete ? 'opacity-30 pointer-events-none' : ''}`}> {groupColors.map((color, idx) => ( <button key={idx} onMouseDown={(e) => e.stopPropagation()} onClick={() => onNodeUpdate?.({ ...selectedNode, group: idx })} className={`w-4 h-4 rounded-full transition-transform hover:scale-125 ${selectedNode.group === idx ? 'ring-2 ring-slate-400 ring-offset-1 scale-110' : ''}`} style={{ backgroundColor: color }} /> ))} </div> <div className="w-px h-6 bg-slate-200 mx-1" /> <div className="flex gap-1 items-center"> {!isConfirmingDelete ? ( <> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleStartLinking} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center" title="创建连接 (L)"> <LinkIcon className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsMetaExpanded(!isMetaExpanded); }} className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${ isMetaExpanded ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50' }`} title="编辑元数据"> <Database className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(true); }} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center" title="删除 (Del)"> <Trash2 className="w-4 h-4" /> </button> </> ) : ( <div className="flex items-center gap-1 animate-in slide-in-from-right-2 duration-200"> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onNodeDelete?.(selectedNode.id); setSelectedNodeId(null); }} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"> <Check className="w-3.5 h-3.5" /> 确认删除 <CornerDownLeft className="w-3 h-3 opacity-70" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(false); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-all" title="取消 (Esc)"> <X className="w-4 h-4" /> </button> </div> )} </div> </div> {isMetaExpanded && !isConfirmingDelete && ( <div className="border-t border-slate-100 p-3 space-y-2 animate-in slide-in-from-bottom-2 duration-200 max-h-48 overflow-y-auto custom-scrollbar"> <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between"> <span>Meta Data (meta_data)</span> </div> <div className="space-y-1.5"> {Object.entries(selectedNode.meta_data || {}).map(([k, v]) => ( <div key={k} className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-100 group"> <span className="text-[11px] font-mono font-bold text-slate-500 w-16 truncate" title={k}>{k}:</span> <span className="text-[11px] text-slate-700 flex-1 truncate">{String(v)}</span> <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleRemoveMeta(k)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"> <Trash className="w-3 h-3" /> </button> </div> ))} </div> <div className="pt-2 flex flex-col gap-1.5"> <div className="flex gap-1"> <input onMouseDown={(e) => e.stopPropagation()} className="text-[10px] bg-white border border-slate-200 rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500" placeholder="key" value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} /> <input onMouseDown={(e) => e.stopPropagation()} className="text-[10px] bg-white border border-slate-200 rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500" placeholder="value" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} /> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleAddMeta} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700 transition-colors"> <Plus className="w-3 h-3" /> </button> </div> </div> </div> )} </div> <div className={`w-3 h-3 border-r border-b rotate-45 -mt-1.5 shadow-[2px_2px_5px_rgba(0,0,0,0.02)] transition-colors ${isConfirmingDelete ? 'bg-red-50 border-red-400' : 'bg-white border-slate-200'}`} /> </div> )}
-      {!readonly && ( <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border border-slate-200 text-[10px] text-slate-400 pointer-events-none flex flex-col gap-0.5"> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Del</kbd> 删除节点/连线</div> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Enter</kbd> 确认操作</div> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Esc</kbd> 取消选择</div> </div> )}
+      {directorPicking && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-5 py-2.5 rounded-2xl shadow-xl text-sm font-bold animate-in slide-in-from-top-4 duration-300 z-50 flex items-center gap-3 border-2 border-white/20 backdrop-blur-md">
+           <MousePointer2 className="w-4 h-4 animate-pulse" />
+           {directorPicking === 'source' ? "🎬 第一步：点击选择起点节点" : "🎬 第二步：点击选择终点节点"}
+           <div className="w-px h-4 bg-white/20"></div>
+           <kbd className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">Esc 取消</kbd>
+        </div>
+      )}
+      {(isLinkMode || (linkingSourceId && !directorPicking)) && ( <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold animate-bounce z-50 flex items-center gap-2"> <LinkIcon className="w-4 h-4" /> {linkingSourceId ? "点击目标节点以连接" : "选择源节点开始连线"} <button onClick={() => {setLinkingSourceId(null); setMousePos(null);}} className="ml-2 hover:bg-white/20 rounded-full p-0.5"> <X className="w-4 h-4" /> </button> </div> )}
+      {selectedLink && !readonly && !isLinkMode && linkPos && !selectedNode && !directorPicking && ( <div className="absolute z-50 pointer-events-auto flex items-center justify-center animate-in zoom-in-95 fade-in duration-200" style={{ left: linkPos.x, top: linkPos.y, transform: 'translate(-50%, -50%)' }}> <button onClick={(e) => { e.stopPropagation(); const s = (selectedLink.source as any).id || selectedLink.source; const t = (selectedLink.target as any).id || selectedLink.target; onLinkDelete?.(s, t); setSelectedLinkId(null); }} className="bg-white p-2.5 rounded-full shadow-xl border border-slate-200 text-red-500 hover:bg-red-50 hover:scale-110 active:scale-95 transition-all group" title="删除连接 (Del)"> <Trash2 className="w-5 h-5" /> </button> </div> )}
+      {selectedNode && !readonly && !isLinkMode && !linkingSourceId && !directorPicking && pos && ( <div className="absolute z-50 pointer-events-none flex flex-col items-center" style={{ left: pos.x, top: pos.y - 35, transform: 'translate(-50%, -100%)' }}> <div className={`bg-white/95 backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.12)] border rounded-2xl p-1 pointer-events-auto flex flex-col items-stretch animate-in zoom-in-95 fade-in duration-200 w-auto min-w-[280px] transition-colors ${isConfirmingDelete ? 'border-red-400 bg-red-50/95' : 'border-slate-200'}`}> <div className="flex items-center gap-1 p-0.5"> <input autoFocus className={`px-3 py-1.5 text-sm font-semibold text-slate-800 bg-transparent border-none focus:ring-0 w-24 outline-none ${isConfirmingDelete ? 'opacity-50' : ''}`} value={editingLabel} disabled={isConfirmingDelete} onChange={(e) => { setEditingLabel(e.target.value); if (onNodeUpdate) onNodeUpdate({ ...selectedNode, label: e.target.value }); }} onKeyDown={(e) => { if(e.key === 'Enter') setSelectedNodeId(null); }} onMouseDown={(e) => e.stopPropagation()} /> <div className="w-px h-6 bg-slate-200 mx-1" /> <div className={`flex gap-1 px-1 ${isConfirmingDelete ? 'opacity-30 pointer-events-none' : ''}`}> {groupColors.map((color, idx) => ( <button key={idx} onMouseDown={(e) => e.stopPropagation()} onClick={() => onNodeUpdate?.({ ...selectedNode, group: idx })} className={`w-4 h-4 rounded-full transition-transform hover:scale-125 ${selectedNode.group === idx ? 'ring-2 ring-slate-400 ring-offset-1 scale-110' : ''}`} style={{ backgroundColor: color }} /> ))} </div> <div className="w-px h-6 bg-slate-200 mx-1" /> <div className="flex gap-1 items-center"> {!isConfirmingDelete ? ( <> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleStartLinking} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center" title="创建连接 (L)"> <LinkIcon className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsMetaExpanded(!isMetaExpanded); }} className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${ isMetaExpanded ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50' }`} title="编辑元数据"> <Database className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(true); }} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center" title="删除 (Del)"> <Trash2 className="w-4 h-4" /> </button> </> ) : ( <div className="flex items-center gap-1 animate-in slide-in-from-right-2 duration-200"> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onNodeDelete?.(selectedNode.id); setSelectedNodeId(null); }} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"> <Check className="w-3.5 h-3.5" /> 确认删除 <CornerDownLeft className="w-3 h-3 opacity-70" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(false); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-all" title="取消 (Esc)"> <X className="w-4 h-4" /> </button> </div> )} </div> </div> {isMetaExpanded && !isConfirmingDelete && ( <div className="border-t border-slate-100 p-3 space-y-2 animate-in slide-in-from-bottom-2 duration-200 max-h-48 overflow-y-auto custom-scrollbar"> <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between"> <span>Meta Data (meta_data)</span> </div> <div className="space-y-1.5"> {Object.entries(selectedNode.meta_data || {}).map(([k, v]) => ( <div key={k} className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-100 group"> <span className="text-[11px] font-mono font-bold text-slate-500 w-16 truncate" title={k}>{k}:</span> <span className="text-[11px] text-slate-700 flex-1 truncate">{String(v)}</span> <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleRemoveMeta(k)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"> <Trash className="w-3 h-3" /> </button> </div> ))} </div> <div className="pt-2 flex flex-col gap-1.5"> <div className="flex gap-1"> <input onMouseDown={(e) => e.stopPropagation()} className="text-[10px] bg-white border border-slate-200 rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500" placeholder="key" value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} /> <input onMouseDown={(e) => e.stopPropagation()} className="text-[10px] bg-white border border-slate-200 rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500" placeholder="value" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} /> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleAddMeta} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700 transition-colors"> <Plus className="w-3 h-3" /> </button> </div> </div> </div> )} </div> <div className={`w-3 h-3 border-r border-b rotate-45 -mt-1.5 shadow-[2px_2px_5px_rgba(0,0,0,0.02)] transition-colors ${isConfirmingDelete ? 'bg-red-50 border-red-400' : 'bg-white border-slate-200'}`} /> </div> )}
+      {!readonly && !directorPicking && ( <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border border-slate-200 text-[10px] text-slate-400 pointer-events-none flex flex-col gap-0.5"> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Del</kbd> 删除节点/连线</div> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Enter</kbd> 确认操作</div> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Esc</kbd> 取消选择</div> </div> )}
     </div>
   );
 });
