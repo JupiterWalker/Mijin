@@ -143,7 +143,7 @@ const CollapsibleSection: React.FC<{
 };
 
 const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
-  const [devMode, setDevMode] = useState(true);
+  const [devMode, setDevMode] = useState(false);
   const [isLinkMode, setIsLinkMode] = useState(false);
   const [projectName, setProjectName] = useState(initialProject.name);
   const [mountGraphData] = useState<GraphData>(JSON.parse(JSON.stringify(initialProject.graphData)));
@@ -169,15 +169,14 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     if (saveStatus === 'saved') setSaveStatus('idle');
   }, [graphData, themeData, eventData, projectName]);
 
-  // Utility to strip D3 internal properties
   const cleanNodeData = (node: any): GraphNode => {
     const { fx, fy, vx, vy, index, ...rest } = node;
     return {
       id: rest.id,
       label: rest.label,
       group: rest.group,
-      x: Math.round(rest.x ?? 0),
-      y: Math.round(rest.y ?? 0),
+      x: rest.x !== undefined ? Math.round(rest.x) : 0,
+      y: rest.y !== undefined ? Math.round(rest.y) : 0,
       activeStates: rest.activeStates || [],
       meta_data: rest.meta_data || {}
     };
@@ -256,6 +255,17 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       return sourceId !== nodeId && targetId !== nodeId;
     });
     const newData = { nodes: filteredNodes.map(cleanNodeData), links: filteredLinks.map(cleanLinkData) };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleLinkDelete = (sourceId: string, targetId: string) => {
+    const filteredLinks = graphData.links.filter(l => {
+      const s = (l.source as any).id || l.source;
+      const t = (l.target as any).id || l.target;
+      return !((s === sourceId && t === targetId) || (s === targetId && t === sourceId));
+    });
+    const newData = { ...graphData, links: filteredLinks.map(cleanLinkData) };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
   };
@@ -345,6 +355,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           isLinkMode={isLinkMode}
           onNodeDragEnd={(nodes) => handleUpdate(nodes, graphData.links)}
           onNodeDelete={handleNodeDelete}
+          onLinkDelete={handleLinkDelete}
           onNodeUpdate={handleNodeUpdateSingle}
           onNodeAdd={handleNodeAdd}
           onLinkAdd={handleLinkAdd}
