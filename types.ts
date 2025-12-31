@@ -86,8 +86,13 @@ export interface ThemeConfig {
 
 // --- Event Sequence ---
 
+export interface InitialNodeState {
+  id: string;
+  nodeState: string;
+}
+
 export interface AtomicStep {
-  type?: 'atomic'; // Default if undefined
+  type?: 'atomic';
   from: string;
   to: string;
   label?: string;
@@ -98,7 +103,7 @@ export interface AtomicStep {
   // Reference a key in themeConfig.nodeStyles to apply to the target node
   targetNodeState?: string;
   
-  // Optional override for timing if not defined in style
+  // Optional override for timing
   duration?: number; 
   delay?: number;
 }
@@ -112,10 +117,9 @@ export interface ParallelStep {
 
 export type SimulationAction = AtomicStep | ParallelStep;
 
-// Backward compatibility alias if needed, though we use SimulationAction now
-export type EventStep = AtomicStep; 
-
 export interface EventSequence {
   name: string;
+  // NEW: Initial state of the graph before steps run
+  initNodes?: InitialNodeState[];
   steps: SimulationAction[];
 }
