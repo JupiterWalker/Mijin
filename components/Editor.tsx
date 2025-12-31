@@ -10,7 +10,8 @@ import {
   Settings, Play, AlertCircle, Code2, Activity, 
   RotateCcw, Palette, ArrowLeft, X, Save, ChevronDown, Pipette, 
   Plus, History, Link as LinkIcon, Clapperboard, Trash2, GripVertical, 
-  FastForward, Layers, Box, Type, MousePointer2, Check
+  FastForward, Layers, Box, Type, MousePointer2, Check, Infinity as InfinityIcon,
+  Settings2
 } from 'lucide-react';
 
 interface EditorProps {
@@ -165,7 +166,13 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   // Director Specific State (Draft changes)
   const [draftEventData, setDraftEventData] = useState<EventSequence>(initialProject.eventData);
   const [directorPicking, setDirectorPicking] = useState<'source' | 'target' | null>(null);
+  const [isContinuousPick, setIsContinuousPick] = useState(false);
   const [currentPickInfo, setCurrentPickInfo] = useState<{ source?: string, groupIndex?: number } | null>(null);
+  const [isDirectorConfigOpen, setIsDirectorConfigOpen] = useState(false);
+  const [directorDefaults, setDirectorDefaults] = useState({ linkStyle: "", nodeState: "" });
+  
+  // Backup state for restoring graph when exiting director mode
+  const [preDirectorGraphData, setPreDirectorGraphData] = useState<GraphData | null>(null);
 
   const btnPrimaryClass = "px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-[10px] font-semibold rounded transition-colors flex items-center shadow-sm active:scale-95";
   const btnSecondaryClass = "px-3 py-1 bg-white hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-300 disabled:cursor-not-allowed text-slate-700 border border-slate-200 text-[10px] font-semibold rounded transition-colors flex items-center shadow-sm active:scale-95";
@@ -176,12 +183,41 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     if (saveStatus === 'saved') setSaveStatus('idle');
   }, [graphData, themeData, eventData, projectName]);
 
-  // Sync draft whenever mode is turned on or official script changes
+  // Handle Director Mode Sync and Restoration
   useEffect(() => {
     if (isDirectorMode) {
       setDraftEventData(JSON.parse(JSON.stringify(eventData)));
+      if (!preDirectorGraphData) {
+        setPreDirectorGraphData(JSON.parse(JSON.stringify(graphData)));
+      }
+    } else {
+      if (preDirectorGraphData) {
+        const restoredData = JSON.parse(JSON.stringify(preDirectorGraphData));
+        setGraphData(restoredData);
+        setGraphJson(JSON.stringify(restoredData, null, 2));
+        setPreDirectorGraphData(null);
+        setCanvasKey(prev => prev + 1);
+        // Reset picking states when leaving mode
+        setDirectorPicking(null);
+        setIsContinuousPick(false);
+        setIsDirectorConfigOpen(false);
+      }
     }
   }, [isDirectorMode, eventData]);
+
+  // Global escape listener to clear picking state
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDirectorPicking(null);
+        setIsContinuousPick(false);
+        setCurrentPickInfo(null);
+        setIsDirectorConfigOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   // Real-time JSON validation
   useEffect(() => {
@@ -325,8 +361,9 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
 
   // --- Director Mode Handlers (Operating on Draft) ---
 
-  const startAtomicPick = (groupIndex?: number) => {
+  const startAtomicPick = (groupIndex?: number, continuous: boolean = false) => {
     setDirectorPicking('source');
+    setIsContinuousPick(continuous);
     setCurrentPickInfo({ groupIndex });
   };
 
@@ -337,7 +374,13 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     } else if (directorPicking === 'target') {
       const source = currentPickInfo?.source;
       if (source && source !== nodeId) {
-        const newStep: AtomicStep = { from: source, to: nodeId, label: "New Flow Step" };
+        const newStep: AtomicStep = { 
+          from: source, 
+          to: nodeId, 
+          label: "New Flow Step",
+          linkStyle: directorDefaults.linkStyle || undefined,
+          targetNodeState: directorDefaults.nodeState || undefined
+        };
         const updatedDraft = { ...draftEventData };
         if (currentPickInfo.groupIndex !== undefined) {
           const group = updatedDraft.steps[currentPickInfo.groupIndex] as ParallelStep;
@@ -346,9 +389,25 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           updatedDraft.steps.push(newStep);
         }
         setDraftEventData(updatedDraft);
+        
+        // 关键修复：延迟执行单步动画预览。
+        setTimeout(() => {
+          canvasRef.current?.runSingleStep(newStep);
+        }, 50);
+
+        // 如果是连续模式，重置回寻找起点状态，否则关闭选择模式
+        if (isContinuousPick) {
+          setDirectorPicking('source');
+          setCurrentPickInfo(prev => ({ ...prev, source: undefined }));
+        } else {
+          setDirectorPicking(null);
+          setCurrentPickInfo(null);
+        }
+      } else if (source === nodeId) {
+        // 如果点回了同一个节点，取消本次选择（通常用户误触 or 想重选）
+        setDirectorPicking('source');
+        setCurrentPickInfo(prev => ({ ...prev, source: undefined }));
       }
-      setDirectorPicking(null);
-      setCurrentPickInfo(null);
     }
   };
 
@@ -401,10 +460,10 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const commitDraftToScript = () => {
     setEventData(JSON.parse(JSON.stringify(draftEventData)));
     setEventJson(JSON.stringify(draftEventData, null, 2));
-    // isDirty will be set by the useEffect
   };
 
-  const StepCard = ({ step, index, subIndex }: { step: AtomicStep, index: number, subIndex?: number }) => (
+  // Fix: Explicitly defined StepCard as a React.FC to properly handle React-specific props like 'key' in TypeScript/JSX
+  const StepCard: React.FC<{ step: AtomicStep, index: number, subIndex?: number }> = ({ step, index, subIndex }) => (
     <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:border-indigo-200 transition-all group/card relative">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
@@ -426,11 +485,11 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       <div className="grid grid-cols-2 gap-2 mb-2">
         <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
           <label className="text-[9px] text-slate-400 block mb-0.5">FROM</label>
-          <span className="text-[11px] font-bold text-slate-700">{graphData.nodes.find(n => n.id === step.from)?.label || step.from}</span>
+          <span className="text-[11px] font-bold text-slate-700 truncate block">{graphData.nodes.find(n => n.id === step.from)?.label || step.from}</span>
         </div>
         <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
           <label className="text-[9px] text-slate-400 block mb-0.5">TO</label>
-          <span className="text-[11px] font-bold text-slate-700">{graphData.nodes.find(n => n.id === step.to)?.label || step.to}</span>
+          <span className="text-[11px] font-bold text-slate-700 truncate block">{graphData.nodes.find(n => n.id === step.to)?.label || step.to}</span>
         </div>
       </div>
 
@@ -518,10 +577,10 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           onDirectorPick={handleDirectorNodePick}
           onNodeDragEnd={(nodes) => handleUpdate(nodes, graphData.links)}
           onNodeDelete={handleNodeDelete}
-          onLinkDelete={handleLinkDelete}
           onNodeUpdate={handleNodeUpdateSingle}
           onNodeAdd={handleNodeAdd}
           onLinkAdd={handleLinkAdd}
+          onLinkDelete={handleLinkDelete}
           onSimulationEnd={handleUpdate}
         />
       </div>
@@ -569,7 +628,60 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         {isDirectorMode && (
           <>
             <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
-              <div className="flex items-center space-x-2 text-purple-600"><Clapperboard className="w-5 h-5" /><h2 className="font-bold text-lg tracking-tight">导演工作台</h2></div>
+              <div className="flex items-center space-x-2 text-purple-600 relative">
+                <Clapperboard className="w-5 h-5" />
+                <h2 className="font-bold text-lg tracking-tight">导演工作台</h2>
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsDirectorConfigOpen(!isDirectorConfigOpen)}
+                    className={`p-1.5 rounded-lg transition-all ml-1 ${isDirectorConfigOpen ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'}`}
+                    title="导演模式默认配置"
+                  >
+                    <Settings2 className="w-4 h-4" />
+                  </button>
+                  {isDirectorConfigOpen && (
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.1)] border border-slate-200 p-4 z-50 animate-in fade-in zoom-in-95 duration-200">
+                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">默认动作配置</span>
+                        <button onClick={() => setIsDirectorConfigOpen(false)} className="text-slate-300 hover:text-slate-500">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
+                            <LinkIcon className="w-3 h-3" /> 默认连线样式
+                          </label>
+                          <select 
+                            className="w-full text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-purple-500"
+                            value={directorDefaults.linkStyle}
+                            onChange={(e) => setDirectorDefaults(prev => ({ ...prev, linkStyle: e.target.value }))}
+                          >
+                            <option value="">(无/默认)</option>
+                            {Object.keys(themeData.linkStyles).map(k => <option key={k} value={k}>{k}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-500 flex items-center gap-1.5">
+                            <Box className="w-3 h-3" /> 默认目标状态
+                          </label>
+                          <select 
+                            className="w-full text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-purple-500"
+                            value={directorDefaults.nodeState}
+                            onChange={(e) => setDirectorDefaults(prev => ({ ...prev, nodeState: e.target.value }))}
+                          >
+                            <option value="">(无/不改变)</option>
+                            {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k}>{k}</option>)}
+                          </select>
+                        </div>
+                        <div className="pt-2 text-[9px] text-slate-400 italic">
+                          * 设置后，每次新增连线都会自动应用这些样式。
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
               <button onClick={() => setIsDirectorMode(false)} className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
             </div>
             
@@ -586,7 +698,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                 </div>
                 <div className="space-y-1.5">
                   {(draftEventData.initNodes || []).map((init, idx) => (
-                    <div key={idx} className="bg-white border border-slate-200 rounded-lg p-2 flex items-center gap-2 shadow-sm animate-in slide-in-from-right-2 duration-200">
+                    <div key={init.id + idx} className="bg-white border border-slate-200 rounded-lg p-2 flex items-center gap-2 shadow-sm animate-in slide-in-from-right-2 duration-200">
                       <select 
                         className="text-[11px] font-bold bg-slate-50 border-slate-200 rounded px-1 py-1 focus:ring-0 outline-none flex-1"
                         value={init.id}
@@ -667,20 +779,34 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                   ))}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-4">
+                <div className="grid grid-cols-3 gap-2 pt-4">
                   <button 
                     onClick={() => startAtomicPick()} 
-                    className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 hover:border-indigo-400 transition-all text-indigo-600 group"
+                    className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 border-dashed transition-all group ${directorPicking === 'source' && !isContinuousPick ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50 hover:border-indigo-400 text-indigo-600'}`}
                   >
                     <MousePointer2 className="w-5 h-5 mb-1.5 transition-transform group-hover:scale-110" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">新增单步动作</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-center">新增单步动作</span>
                   </button>
+
+                  <button 
+                    onClick={() => startAtomicPick(undefined, true)} 
+                    className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 border-dashed transition-all group ${isContinuousPick ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-emerald-200 bg-emerald-50/30 hover:bg-emerald-50 hover:border-emerald-400 text-emerald-600'}`}
+                  >
+                    <div className="relative mb-1.5">
+                      <MousePointer2 className="w-5 h-5 transition-transform group-hover:scale-110" />
+                      <div className="absolute -top-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 border border-white">
+                        <InfinityIcon className="w-2 h-2" />
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-center">连续新增单步</span>
+                  </button>
+
                   <button 
                     onClick={addParallelGroup} 
-                    className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-purple-200 bg-purple-50/50 hover:bg-purple-50 hover:border-purple-400 transition-all text-purple-600 group"
+                    className="flex flex-col items-center justify-center p-3 rounded-2xl border-2 border-dashed border-purple-200 bg-purple-50/30 hover:bg-purple-50 hover:border-purple-400 transition-all text-purple-600 group"
                   >
                     <FastForward className="w-5 h-5 mb-1.5 transition-transform group-hover:scale-110" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">新增并行容器</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-center">新增并行容器</span>
                   </button>
                 </div>
               </div>
@@ -705,7 +831,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                 </button>
               </div>
               <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium px-1 uppercase tracking-widest">
-                <span>Director Workbench v2.2</span>
+                <span>Director Workbench v2.3</span>
                 {isDraftDifferent ? (
                    <span className="text-amber-500 font-bold flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> 未保存的草稿</span>
                 ) : (

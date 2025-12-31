@@ -80,6 +80,14 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     });
   }, [selectedLinkId, data.links, dimensions]);
 
+  // 同步外部模式状态。当导演模式取消或连线模式关闭时，清理内部起点状态。
+  useEffect(() => {
+    if (directorPicking === null && !isLinkMode) {
+      setLinkingSourceId(null);
+      setMousePos(null);
+    }
+  }, [directorPicking, isLinkMode]);
+
   useEffect(() => {
     if (readonly) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -403,8 +411,9 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       linkGroup.selectAll("line").attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y).attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
       nodeGroup.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
       
+      // 这里的逻辑现在依赖于同步清理后的 linkingSourceId
       if ((linkingSourceId || directorPicking === 'target') && mousePos) {
-        const sourceNode = nodes.find(n => n.id === (linkingSourceId || linkingSourceId));
+        const sourceNode = nodes.find(n => n.id === linkingSourceId);
         if (sourceNode) {
           const trans = lastTransformRef.current;
           const [worldMouseX, worldMouseY] = trans.invert([mousePos.x, mousePos.y]);
