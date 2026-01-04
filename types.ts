@@ -100,11 +100,15 @@ export interface AtomicStep {
   // Reference a key in themeConfig.linkStyles
   linkStyle?: string; 
   
-  // Reference a key in themeConfig.nodeStyles to apply to the target node
-  targetNodeState?: string;
+  // Stages of Node State Transitions
+  targetNodeState?: string;      // 1. Initial Impact State
+  processingNodeState?: string;  // 2. Processing State
+  finalNodeState?: string;       // 3. Final Result State
   
   // Optional override for timing
-  duration?: number; 
+  duration?: number;             // Travel duration
+  durationProcessing?: number;   // How long to wait before switching to processing
+  durationFinal?: number;        // How long to wait before switching to final
   delay?: number;
 }
 

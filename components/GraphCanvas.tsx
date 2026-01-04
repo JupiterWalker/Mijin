@@ -82,7 +82,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     });
   }, [selectedLinkId, data.links, dimensions]);
 
-  // 同步外部模式状态。当导演模式取消或连线模式关闭时，清理内部起点状态。
   useEffect(() => {
     if (directorPicking === null && !isLinkMode) {
       setLinkingSourceId(null);
@@ -221,7 +220,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     }
   }, [getNodeVisuals, getLinkVisuals, readonly, selectedNodeId, isConfirmingDelete, isDirectorMode]);
 
-  // Handle Resize
   useEffect(() => {
     if (!wrapperRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -269,7 +267,9 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       tl.to(packet.node(), { opacity: 1, duration: 0.1 }, 0);
       tl.to(packet.node(), { attr: { cx: targetNode.x!, cy: targetNode.y! }, duration: travelDuration, ease: "power1.inOut", onComplete: () => packet.remove() }, 0);
 
+      // Transition Sequence on Target Node
       tl.add(() => {
+         // Apply Link Style if specified
          if (atomicStep.linkStyle) {
             const linkGroupId = `#link-group-${atomicStep.from}-${atomicStep.to}`;
             const reverseGroupId = `#link-group-${atomicStep.to}-${atomicStep.from}`;
@@ -283,6 +283,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
               }
             }
          }
+         
+         // Phase 1: Target Node State (Impact)
          if (atomicStep.targetNodeState) {
             const nodeDatum = d3.select(`#node-group-${targetNode.id}`).datum() as GraphNode;
             if (nodeDatum) {
@@ -293,6 +295,32 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
          updateStyles();
       }, travelDuration);
 
+      // Phase 2: Processing State (displayed after targetNodeState)
+      if (atomicStep.processingNodeState) {
+        tl.add(() => {
+          const nodeDatum = d3.select(`#node-group-${targetNode.id}`).datum() as GraphNode;
+          if (nodeDatum && atomicStep.processingNodeState) {
+            if (!nodeDatum.activeStates) nodeDatum.activeStates = [];
+            // Optionally clear existing states or just push
+            nodeDatum.activeStates.push(atomicStep.processingNodeState);
+            updateStyles();
+          }
+        }, travelDuration + (atomicStep.durationProcessing || 0.4));
+      }
+
+      // Phase 3: Final State (Final result)
+      if (atomicStep.finalNodeState) {
+        tl.add(() => {
+          const nodeDatum = d3.select(`#node-group-${targetNode.id}`).datum() as GraphNode;
+          if (nodeDatum && atomicStep.finalNodeState) {
+             if (!nodeDatum.activeStates) nodeDatum.activeStates = [];
+             nodeDatum.activeStates.push(atomicStep.finalNodeState);
+             updateStyles();
+          }
+        }, travelDuration + (atomicStep.durationProcessing || 0.4) + (atomicStep.durationFinal || 0.4));
+      }
+
+      // Visual punch for the impact
       if (nodeAnimConfig.scale || nodeAnimConfig.durationIn) {
           const targetSelector = `#node-${targetNode.id}`;
           const animDuration = nodeAnimConfig.durationIn || 0.3;
@@ -313,7 +341,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
     
-    // Background click handler
     svg.append("rect")
       .attr("width", "100%")
       .attr("height", "100%")
@@ -347,7 +374,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
         }
       });
 
-    // Patterns for Director Mode Grid
     const defs = svg.append("defs");
     const patternSize = 40;
     const pattern = defs.append("pattern")
@@ -368,7 +394,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       .attr("fill", "url(#grid-pattern)")
       .style("pointer-events", "none");
 
-    // Zoom logic
     const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.1, 4]).on("zoom", (event) => { 
       svg.select(".zoom-layer").attr("transform", event.transform); 
       lastTransformRef.current = event.transform; 
@@ -379,7 +404,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     const zoomLayer = svg.append("g").attr("class", "zoom-layer");
     if (!readonly) zoomLayer.attr("transform", lastTransformRef.current.toString());
 
-    // Prepare data
     const oldNodesMap = new Map<string, GraphNode>(nodesRef.current.map(n => [n.id, n]));
     const nodes: GraphNode[] = data.nodes.map(n => {
       const old = oldNodesMap.get(n.id);
@@ -399,7 +423,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     nodesRef.current = nodes;
     linksRef.current = links;
 
-    // Simulation
     const simulation = d3.forceSimulation(nodes).alpha(0) 
       .force("link", d3.forceLink(links).id((d: any) => d.id).distance(readonly ? 60 : 150))
       .force("charge", d3.forceManyBody().strength(readonly ? -300 : -400))
@@ -408,17 +431,14 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       .force("collide", d3.forceCollide().radius(readonly ? 30 : 45));
     simulationRef.current = simulation;
 
-    // Ghost line for linking or director mode
     const ghostLine = zoomLayer.append("line").attr("class", "ghost-line").attr("stroke", directorPicking ? "#a855f7" : "#10b981").attr("stroke-width", 3).attr("stroke-dasharray", "5,5").style("pointer-events", "none").style("opacity", 0);
 
-    // Render Links
     const linkGroup = zoomLayer.append("g").attr("class", "links-layer").selectAll("g").data(links).join("g").attr("id", (d: any) => `link-group-${d.source.id}-${d.target.id}`).style("cursor", readonly ? "default" : "pointer").on("click", (event, d) => { if (!readonly && !directorPicking) { event.stopPropagation(); const sId = (d.source as any).id || d.source; const tId = (d.target as any).id || d.target; setSelectedLinkId(`${sId}-${tId}`); setSelectedNodeId(null); setIsConfirmingDelete(false); } });
     linkGroup.append("line").attr("class", "link-hitbox").attr("stroke", "transparent").attr("stroke-width", 20);
     linkGroup.append("line").attr("class", "link-outline").attr("stroke-linecap", "round");
     linkGroup.append("line").attr("class", "link-core");
     linkSelectionRef.current = linkGroup;
 
-    // Render Nodes
     const nodeGroup = zoomLayer.append("g").attr("class", "nodes-layer").selectAll("g").data(nodes).join("g").style("cursor", readonly ? "default" : (isLinkMode || linkingSourceId || directorPicking ? "crosshair" : "pointer")).on("click", (event, d) => { 
       if (readonly) return; 
       event.stopPropagation(); 
@@ -439,7 +459,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     nodeGroup.attr("id", (d) => `node-group-${d.id}`);
     nodeGroup.append("circle").attr("class", "node-circle").attr("id", (d) => `node-${d.id}`);
     
-    // Label
     const labels = nodeGroup.append("text")
       .attr("x", 0)
       .attr("y", readonly ? 22 : 32)

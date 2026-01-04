@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Toggle } from './Toggle';
 import GraphCanvas, { GraphCanvasHandle } from './GraphCanvas';
@@ -10,7 +11,7 @@ import {
   RotateCcw, Palette, ArrowLeft, X, Save, ChevronDown, Pipette, 
   Plus, History, Link as LinkIcon, Clapperboard, Trash2, GripVertical, 
   FastForward, Layers, Box, Type, MousePointer2, Check, Infinity as InfinityIcon,
-  Settings2, Sparkles, MonitorPlay
+  Settings2, Sparkles, MonitorPlay, Timer, Flag
 } from 'lucide-react';
 
 interface EditorProps {
@@ -168,9 +169,15 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const [isContinuousPick, setIsContinuousPick] = useState(false);
   const [currentPickInfo, setCurrentPickInfo] = useState<{ source?: string, groupIndex?: number } | null>(null);
   const [isDirectorConfigOpen, setIsDirectorConfigOpen] = useState(false);
-  const [directorDefaults, setDirectorDefaults] = useState({ linkStyle: "", nodeState: "" });
+  const [directorDefaults, setDirectorDefaults] = useState({ 
+    linkStyle: "", 
+    targetState: "", 
+    processingState: "", 
+    finalState: "",
+    durationProcessing: 0.4,
+    durationFinal: 0.4
+  });
   
-  // Backup state for restoring graph when exiting director mode
   const [preDirectorGraphData, setPreDirectorGraphData] = useState<GraphData | null>(null);
 
   const btnPrimaryClass = "px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-[10px] font-semibold rounded transition-colors flex items-center shadow-sm active:scale-95";
@@ -182,7 +189,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     if (saveStatus === 'saved') setSaveStatus('idle');
   }, [graphData, themeData, eventData, projectName]);
 
-  // Handle Director Mode Sync and Restoration
   useEffect(() => {
     if (isDirectorMode) {
       setDraftEventData(JSON.parse(JSON.stringify(eventData)));
@@ -196,7 +202,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         setGraphJson(JSON.stringify(restoredData, null, 2));
         setPreDirectorGraphData(null);
         setCanvasKey(prev => prev + 1);
-        // Reset picking states when leaving mode
         setDirectorPicking(null);
         setIsContinuousPick(false);
         setIsDirectorConfigOpen(false);
@@ -204,7 +209,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     }
   }, [isDirectorMode, eventData]);
 
-  // Global escape listener to clear picking state
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -218,7 +222,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     return () => window.removeEventListener('keydown', handleEsc);
   }, []);
 
-  // Real-time JSON validation
   useEffect(() => {
     const validate = (text: string, type: 'graph' | 'theme' | 'event') => {
       try {
@@ -358,8 +361,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     }
   };
 
-  // --- Director Mode Handlers (Operating on Draft) ---
-
   const startAtomicPick = (groupIndex?: number, continuous: boolean = false) => {
     setDirectorPicking('source');
     setIsContinuousPick(continuous);
@@ -378,7 +379,11 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           to: nodeId, 
           label: "New Flow Step",
           linkStyle: directorDefaults.linkStyle || undefined,
-          targetNodeState: directorDefaults.nodeState || undefined
+          targetNodeState: directorDefaults.targetState || undefined,
+          processingNodeState: directorDefaults.processingState || undefined,
+          finalNodeState: directorDefaults.finalState || undefined,
+          durationProcessing: directorDefaults.durationProcessing || undefined,
+          durationFinal: directorDefaults.durationFinal || undefined
         };
         const updatedDraft = { ...draftEventData };
         if (currentPickInfo.groupIndex !== undefined) {
@@ -465,7 +470,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${isDirectorMode ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
             {subIndex !== undefined ? `${index + 1}.${subIndex + 1}` : index + 1}
           </div>
-          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${isDirectorMode ? 'text-purple-400 bg-purple-900/40 border border-purple-500/20' : 'text-indigo-600 bg-indigo-50 border border-indigo-100'}`}>Atomic</span>
+          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${isDirectorMode ? 'text-purple-400 bg-purple-900/40 border border-purple-500/20' : 'text-indigo-600 bg-indigo-50 border border-indigo-100'}`}>Atomic Step</span>
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
           <button onClick={() => canvasRef.current?.runSingleStep(step)} className={`p-1 rounded ${isDirectorMode ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-emerald-600 hover:bg-emerald-50'}`} title="Preview Step">
@@ -477,7 +482,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 mb-2">
+      <div className="grid grid-cols-2 gap-2 mb-3">
         <div className={`p-1.5 rounded border ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
           <label className="text-[9px] text-slate-500 block mb-0.5 font-bold uppercase tracking-widest">FROM</label>
           <span className={`text-[11px] font-bold truncate block ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`}>{graphData.nodes.find(n => n.id === step.from)?.label || step.from}</span>
@@ -488,40 +493,100 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         </div>
       </div>
 
-      <div className="space-y-2">
-        <div className={`flex items-center gap-2 rounded border px-2 py-1 ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-          <Type className="w-3 h-3 text-slate-500" />
+      <div className="space-y-3">
+        <div className={`flex items-center gap-2 rounded border px-2 py-1.5 ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+          <Type className="w-3.5 h-3.5 text-slate-500" />
           <input 
             className={`text-[11px] bg-transparent border-none focus:ring-0 flex-1 p-0 ${isDirectorMode ? 'text-slate-300 placeholder-slate-600' : 'text-slate-700 placeholder-slate-400'}`} 
             value={step.label || ""} 
-            placeholder="Step label..."
+            placeholder="Action Label (e.g. 'Processing Data')"
             onChange={(e) => updateStepProp(index, 'label', e.target.value, subIndex)}
           />
         </div>
         
-        <div className="flex items-center gap-2">
-           <div className={`flex-1 flex items-center gap-1 rounded border px-2 py-1 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-             <LinkIcon className="w-3 h-3 text-slate-500 flex-shrink-0" />
-             <select 
-               className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 appearance-none outline-none ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
-               value={step.linkStyle || ""} 
-               onChange={(e) => updateStepProp(index, 'linkStyle', e.target.value, subIndex)}
-             >
-               <option value="">Default Link</option>
-               {Object.keys(themeData.linkStyles).map(k => <option key={k} value={k} className={isDirectorMode ? 'bg-slate-800' : ''}>{k}</option>)}
-             </select>
-           </div>
-           <div className={`flex-1 flex items-center gap-1 rounded border px-2 py-1 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-             <Box className="w-3 h-3 text-slate-500 flex-shrink-0" />
-             <select 
-               className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 appearance-none outline-none ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
-               value={step.targetNodeState || ""} 
-               onChange={(e) => updateStepProp(index, 'targetNodeState', e.target.value, subIndex)}
-             >
-               <option value="">No State Change</option>
-               {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className={isDirectorMode ? 'bg-slate-800' : ''}>{k}</option>)}
-             </select>
-           </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+             <div className={`flex-1 flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <LinkIcon className="w-3 h-3 text-slate-500 flex-shrink-0" />
+               <select 
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 appearance-none outline-none ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.linkStyle || ""} 
+                 onChange={(e) => updateStepProp(index, 'linkStyle', e.target.value, subIndex)}
+               >
+                 <option value="">Default Link</option>
+                 {Object.keys(themeData.linkStyles).map(k => <option key={k} value={k} className={isDirectorMode ? 'bg-slate-800' : ''}>{k}</option>)}
+               </select>
+             </div>
+             <div className={`flex-1 flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <Timer className="w-3 h-3 text-slate-500 flex-shrink-0" />
+               <input 
+                 type="number" step="0.1"
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.duration || 1} 
+                 onChange={(e) => updateStepProp(index, 'duration', parseFloat(e.target.value), subIndex)}
+               />
+             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+             <div className={`flex-[2] flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <Box className="w-3 h-3 text-indigo-400 flex-shrink-0" />
+               <select 
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 appearance-none outline-none ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.targetNodeState || ""} 
+                 onChange={(e) => updateStepProp(index, 'targetNodeState', e.target.value, subIndex)}
+               >
+                 <option value="">Impact: None</option>
+                 {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className={isDirectorMode ? 'bg-slate-800' : ''}>{k}</option>)}
+               </select>
+             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5">
+             <div className={`flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <Activity className="w-3 h-3 text-amber-500 flex-shrink-0" />
+               <select 
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 appearance-none outline-none ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.processingNodeState || ""} 
+                 onChange={(e) => updateStepProp(index, 'processingNodeState', e.target.value, subIndex)}
+               >
+                 <option value="">Processing: None</option>
+                 {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className={isDirectorMode ? 'bg-slate-800' : ''}>{k}</option>)}
+               </select>
+             </div>
+             <div className={`flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <Timer className="w-3 h-3 text-slate-500 flex-shrink-0" />
+               <input 
+                 type="number" step="0.1" placeholder="Dur"
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.durationProcessing || ""} 
+                 onChange={(e) => updateStepProp(index, 'durationProcessing', parseFloat(e.target.value), subIndex)}
+               />
+             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5">
+             <div className={`flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <Flag className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+               <select 
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 appearance-none outline-none ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.finalNodeState || ""} 
+                 onChange={(e) => updateStepProp(index, 'finalNodeState', e.target.value, subIndex)}
+               >
+                 <option value="">Final: None</option>
+                 {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className={isDirectorMode ? 'bg-slate-800' : ''}>{k}</option>)}
+               </select>
+             </div>
+             <div className={`flex items-center gap-1.5 rounded border px-2 py-1.5 overflow-hidden ${isDirectorMode ? 'bg-slate-900/50 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+               <Timer className="w-3 h-3 text-slate-500 flex-shrink-0" />
+               <input 
+                 type="number" step="0.1" placeholder="Dur"
+                 className={`text-[10px] bg-transparent border-none focus:ring-0 flex-1 p-0 ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`} 
+                 value={step.durationFinal || ""} 
+                 onChange={(e) => updateStepProp(index, 'durationFinal', parseFloat(e.target.value), subIndex)}
+               />
+             </div>
+          </div>
         </div>
       </div>
     </div>
@@ -649,7 +714,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <div className="space-y-4">
+                      <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
                             <LinkIcon className="w-3 h-3" /> 默认连线样式
@@ -665,19 +730,42 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
-                            <Box className="w-3 h-3" /> 默认目标状态
+                            <Box className="w-3 h-3 text-indigo-400" /> 默认目标状态 (Impact)
                           </label>
                           <select 
                             className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
-                            value={directorDefaults.nodeState}
-                            onChange={(e) => setDirectorDefaults(prev => ({ ...prev, nodeState: e.target.value }))}
+                            value={directorDefaults.targetState}
+                            onChange={(e) => setDirectorDefaults(prev => ({ ...prev, targetState: e.target.value }))}
                           >
                             <option value="">(无/不改变)</option>
                             {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
                           </select>
                         </div>
-                        <div className="pt-2 text-[9px] text-slate-500 italic leading-relaxed">
-                          * 设置后，每次新增连线都会自动应用这些样式。
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Activity className="w-3 h-3 text-amber-500" /> 默认处理状态 (Processing)
+                          </label>
+                          <select 
+                            className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
+                            value={directorDefaults.processingState}
+                            onChange={(e) => setDirectorDefaults(prev => ({ ...prev, processingState: e.target.value }))}
+                          >
+                            <option value="">(无/跳过)</option>
+                            {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
+                            <Flag className="w-3 h-3 text-emerald-500" /> 默认结尾状态 (Final)
+                          </label>
+                          <select 
+                            className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
+                            value={directorDefaults.finalState}
+                            onChange={(e) => setDirectorDefaults(prev => ({ ...prev, finalState: e.target.value }))}
+                          >
+                            <option value="">(无/跳过)</option>
+                            {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
+                          </select>
                         </div>
                       </div>
                     </div>
@@ -688,7 +776,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
             </div>
             
             <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar bg-slate-900/30">
-              {/* Initial State Section */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-1">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -722,7 +809,6 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                 </div>
               </div>
 
-              {/* Steps Timeline Section */}
               <div className="space-y-5 pt-6 border-t border-white/5">
                 <div className="flex items-center justify-between px-1">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -743,7 +829,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <span className="text-[9px] font-black text-purple-300 bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-500/30 uppercase tracking-[0.1em] flex items-center gap-1.5">
-                                <FastForward className="w-3 h-3" /> Concurrent Group
+                                <FastForward className="w-3 h-3" /> 并行组
                               </span>
                               <input 
                                 className="text-[11px] font-black text-slate-400 bg-transparent border-none focus:ring-0 p-0 placeholder-slate-600" 
