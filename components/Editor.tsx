@@ -244,6 +244,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       group: rest.group,
       x: rest.x !== undefined ? Math.round(rest.x) : 0,
       y: rest.y !== undefined ? Math.round(rest.y) : 0,
+      apparence: rest.apparence,
       activeStates: rest.activeStates || [],
       meta_data: rest.meta_data || {}
     };

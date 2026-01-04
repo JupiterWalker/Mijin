@@ -10,6 +10,11 @@ export interface GraphNode {
   vx?: number;
   vy?: number;
   index?: number;
+  // Persistent appearance overrides
+  apparence?: {
+    fill?: string;
+    stroke?: string;
+  };
   // State properties: Array of style names applied to this node
   activeStates?: string[];
   // Flexible metadata for user-defined properties
