@@ -10,6 +10,7 @@ interface GraphCanvasProps {
   theme: ThemeConfig;
   readonly?: boolean;
   isLinkMode?: boolean;
+  isDirectorMode?: boolean;
   directorPicking?: 'source' | 'target' | null;
   onDirectorPick?: (nodeId: string) => void;
   onNodeDragEnd?: (nodes: GraphNode[]) => void;
@@ -31,6 +32,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   theme, 
   readonly = false, 
   isLinkMode = false,
+  isDirectorMode = false,
   directorPicking = null,
   onDirectorPick,
   onNodeDragEnd, 
@@ -127,14 +129,18 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     const isDirectorSource = directorPicking === 'target' && linkingSourceId === node.id;
     
     let visuals = {
-      fill: "#fff", 
-      stroke: isSelected ? (isConfirmingDelete ? "#ef4444" : "#6366f1") : (isLinkingSource ? "#10b981" : (isDirectorSource ? "#a855f7" : "#fff")),
+      fill: isDirectorMode ? "#1e293b" : "#fff", 
+      stroke: isSelected ? (isConfirmingDelete ? "#ef4444" : "#6366f1") : (isLinkingSource ? "#10b981" : (isDirectorSource ? "#a855f7" : (isDirectorMode ? "#475569" : "#fff"))),
       strokeWidth: isSelected ? 4 : (isLinkingSource || isDirectorSource ? 4 : 2),
       radius: readonly ? 12 : 20,
       badge: null as { text?: string, color?: string, textColor?: string } | null
     };
-    const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
+    const groupColors = isDirectorMode 
+      ? ["#818cf8", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#22d3ee"] 
+      : ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
+    
     visuals.fill = groupColors[(node.group || 0) % groupColors.length];
+    
     if (node.activeStates && theme.nodeStyles) {
       node.activeStates.forEach(stateName => {
         const styleDef = theme.nodeStyles[stateName];
@@ -149,17 +155,17 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       });
     }
     return visuals;
-  }, [selectedNodeId, linkingSourceId, theme.nodeStyles, readonly, isConfirmingDelete, directorPicking]);
+  }, [selectedNodeId, linkingSourceId, theme.nodeStyles, readonly, isConfirmingDelete, directorPicking, isDirectorMode]);
 
   const getLinkVisuals = useCallback((link: GraphLink) => {
     const sId = (link.source as any).id || link.source;
     const tId = (link.target as any).id || link.target;
     const isSelected = selectedLinkId === `${sId}-${tId}` || selectedLinkId === `${tId}-${sId}`;
     let visuals = {
-      mainColor: isSelected ? "#6366f1" : "#94a3b8",
+      mainColor: isSelected ? (isDirectorMode ? "#a855f7" : "#6366f1") : (isDirectorMode ? "#334155" : "#94a3b8"),
       width: isSelected ? 4 : (readonly ? 1.5 : 2),
       opacity: isSelected ? 1 : 0.6,
-      outlineColor: isSelected ? "rgba(99, 102, 241, 0.2)" : "transparent",
+      outlineColor: isSelected ? (isDirectorMode ? "rgba(168, 85, 247, 0.2)" : "rgba(99, 102, 241, 0.2)") : "transparent",
       outlineWidth: isSelected ? 8 : 0
     };
     if (link.activeStates && theme.linkStyles) {
@@ -176,7 +182,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       });
     }
     return visuals;
-  }, [theme.linkStyles, readonly, selectedLinkId]);
+  }, [theme.linkStyles, readonly, selectedLinkId, isDirectorMode]);
 
   const updateStyles = useCallback(() => {
     if (linkSelectionRef.current) {
@@ -197,7 +203,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
           .attr("fill", visuals.fill!)
           .attr("stroke", visuals.stroke!)
           .attr("stroke-width", visuals.strokeWidth!)
-          .classed("confirming-delete-anim", isSelected && isConfirmingDelete);
+          .classed("confirming-delete-anim", isSelected && isConfirmingDelete)
+          .classed("selected-node-glow", isSelected && !isConfirmingDelete);
+        
+        g.select(".node-label-bg").attr("stroke", isDirectorMode ? "#0f172a" : "white");
+        g.select(".node-label-fg").attr("fill", isDirectorMode ? "#cbd5e1" : "#1e293b");
+
         const badge = g.select(".node-badge");
         if (visuals.badge) {
           badge.style("display", "block");
@@ -208,7 +219,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
         }
       });
     }
-  }, [getNodeVisuals, getLinkVisuals, readonly, selectedNodeId, isConfirmingDelete]);
+  }, [getNodeVisuals, getLinkVisuals, readonly, selectedNodeId, isConfirmingDelete, isDirectorMode]);
 
   // Handle Resize
   useEffect(() => {
@@ -241,11 +252,18 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       const linkAnimConfig = linkStyleDef?.animation || {};
       const nodeStyleDef = atomicStep.targetNodeState ? theme.nodeStyles[atomicStep.targetNodeState] : null;
       const nodeAnimConfig = nodeStyleDef?.animation || {};
-      const packetColor = linkAnimConfig.packetColor || "#ef4444";
+      const packetColor = linkAnimConfig.packetColor || (isDirectorMode ? "#a855f7" : "#ef4444");
       const packetRadius = linkAnimConfig.packetRadius || 6;
       const travelDuration = atomicStep.duration || linkAnimConfig.duration || 1;
 
-      const packet = animLayer.append("circle").attr("r", packetRadius).attr("fill", packetColor).attr("stroke", "#fff").attr("stroke-width", 2).attr("cx", sourceNode.x!).attr("cy", sourceNode.y!).attr("opacity", 0);
+      const packet = animLayer.append("circle")
+        .attr("r", packetRadius)
+        .attr("fill", packetColor)
+        .attr("stroke", isDirectorMode ? "#1e1b4b" : "#fff")
+        .attr("stroke-width", 2)
+        .attr("cx", sourceNode.x!)
+        .attr("cy", sourceNode.y!)
+        .attr("opacity", 0);
       
       tl.to(`#node-${sourceNode.id}`, { attr: { r: 24 }, duration: 0.2, yoyo: true, repeat: 1 }, 0);
       tl.to(packet.node(), { opacity: 1, duration: 0.1 }, 0);
@@ -284,7 +302,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       }
     }
     return tl;
-  }, [theme, updateStyles]);
+  }, [theme, updateStyles, isDirectorMode]);
 
   // Main Draw Loop
   useEffect(() => {
@@ -328,6 +346,27 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
           onNodeAdd(worldX, worldY);
         }
       });
+
+    // Patterns for Director Mode Grid
+    const defs = svg.append("defs");
+    const patternSize = 40;
+    const pattern = defs.append("pattern")
+      .attr("id", "grid-pattern")
+      .attr("width", patternSize)
+      .attr("height", patternSize)
+      .attr("patternUnits", "userSpaceOnUse");
+    
+    pattern.append("path")
+      .attr("d", `M ${patternSize} 0 L 0 0 0 ${patternSize}`)
+      .attr("fill", "none")
+      .attr("stroke", isDirectorMode ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)")
+      .attr("stroke-width", 1);
+
+    svg.append("rect")
+      .attr("width", "100%")
+      .attr("height", "100%")
+      .attr("fill", "url(#grid-pattern)")
+      .style("pointer-events", "none");
 
     // Zoom logic
     const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.1, 4]).on("zoom", (event) => { 
@@ -399,9 +438,31 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     if (!readonly && !isLinkMode && !linkingSourceId && !directorPicking) nodeGroup.call(d3.drag<SVGGElement, GraphNode>().on("start", dragstarted).on("drag", dragged).on("end", dragended) as any);
     nodeGroup.attr("id", (d) => `node-group-${d.id}`);
     nodeGroup.append("circle").attr("class", "node-circle").attr("id", (d) => `node-${d.id}`);
-    nodeGroup.append("text").text(d => d.label).attr("x", 0).attr("y", readonly ? 22 : 32).attr("text-anchor", "middle").attr("fill", "#1e293b").attr("font-size", "12px").attr("font-weight", "600").style("pointer-events", "none").clone(true).lower().attr("stroke", "white").attr("stroke-width", readonly ? 1.5 : 4).attr("stroke-opacity", 0.9);
+    
+    // Label
+    const labels = nodeGroup.append("text")
+      .attr("x", 0)
+      .attr("y", readonly ? 22 : 32)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "12px")
+      .attr("font-weight", "600")
+      .style("pointer-events", "none");
+
+    labels.append("tspan")
+      .attr("class", "node-label-bg")
+      .attr("x", 0) 
+      .attr("stroke-width", readonly ? 1.5 : 4)
+      .attr("stroke-opacity", 0.9)
+      .text(d => d.label);
+
+    labels.append("tspan")
+      .attr("class", "node-label-fg")
+      .attr("x", 0) 
+      .attr("stroke", "none")
+      .text(d => d.label);
+
     const badgeGroup = nodeGroup.append("g").attr("class", "node-badge").attr("transform", readonly ? "translate(8, -8)" : "translate(14, -14)").style("display", "none");
-    badgeGroup.append("circle").attr("r", readonly ? 5 : 8).attr("stroke", "#fff").attr("stroke-width", 1.5);
+    badgeGroup.append("circle").attr("r", readonly ? 5 : 8).attr("stroke", isDirectorMode ? "#0f172a" : "#fff").attr("stroke-width", 1.5);
     if (!readonly) badgeGroup.append("text").attr("text-anchor", "middle").attr("dy", 3).attr("font-size", "10px").attr("font-weight", "bold");
     nodeSelectionRef.current = nodeGroup;
 
@@ -411,7 +472,6 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       linkGroup.selectAll("line").attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y).attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
       nodeGroup.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
       
-      // 这里的逻辑现在依赖于同步清理后的 linkingSourceId
       if ((linkingSourceId || directorPicking === 'target') && mousePos) {
         const sourceNode = nodes.find(n => n.id === linkingSourceId);
         if (sourceNode) {
@@ -454,7 +514,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     function dragended(event: any) { if (!event.active) simulation.alphaTarget(0); event.subject.fx = event.x; event.subject.fy = event.y; if (onNodeDragEnd) onNodeDragEnd(nodesRef.current); }
 
     return () => { simulation.stop(); };
-  }, [data, theme, readonly, isLinkMode, linkingSourceId, mousePos, onNodeDragEnd, onNodeAdd, updateStyles, onLinkAdd, dimensions.width, dimensions.height, directorPicking, onDirectorPick]); 
+  }, [data, theme, readonly, isLinkMode, linkingSourceId, mousePos, onNodeDragEnd, onNodeAdd, updateStyles, onLinkAdd, dimensions.width, dimensions.height, directorPicking, onDirectorPick, isDirectorMode]); 
 
   useImperativeHandle(ref, () => ({
     runAnimation: (sequence: EventSequence) => {
@@ -521,15 +581,24 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   const getLinkMidPosition = () => { if (!selectedLink || !svgRef.current) return null; const s = selectedLink.source as GraphNode; const t = selectedLink.target as GraphNode; const midX = (s.x! + t.x!) / 2; const midY = (s.y! + t.y!) / 2; const trans = lastTransformRef.current; return { x: midX * trans.k + trans.x, y: midY * trans.k + trans.y }; };
   const pos = getMenuPosition();
   const linkPos = getLinkMidPosition();
-  const groupColors = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
+  const groupColors = isDirectorMode 
+    ? ["#818cf8", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#22d3ee"] 
+    : ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4"];
+
   const handleStartLinking = (e: React.MouseEvent) => { e.stopPropagation(); if (selectedNode) setLinkingSourceId(selectedNode.id); };
 
   return (
-    <div ref={wrapperRef} className="w-full h-full relative bg-slate-50 overflow-hidden">
-      <style>{`@keyframes deletePulse { 0% { filter: drop-shadow(0 0 2px #ef4444); stroke-width: 4; } 50% { filter: drop-shadow(0 0 10px #ef4444); stroke-width: 6; } 100% { filter: drop-shadow(0 0 2px #ef4444); stroke-width: 4; } } .confirming-delete-anim { animation: deletePulse 1s infinite ease-in-out; stroke: #ef4444 !important; }`}</style>
+    <div ref={wrapperRef} className={`w-full h-full relative transition-colors duration-500 overflow-hidden ${isDirectorMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
+      <style>{`
+        @keyframes deletePulse { 0% { filter: drop-shadow(0 0 2px #ef4444); stroke-width: 4; } 50% { filter: drop-shadow(0 0 10px #ef4444); stroke-width: 6; } 100% { filter: drop-shadow(0 0 2px #ef4444); stroke-width: 4; } } 
+        @keyframes selectionGlow { 0% { filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.6)); } 50% { filter: drop-shadow(0 0 15px rgba(99, 102, 241, 0.9)); } 100% { filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.6)); } }
+        .confirming-delete-anim { animation: deletePulse 1s infinite ease-in-out; stroke: #ef4444 !important; }
+        .selected-node-glow { animation: selectionGlow 2s infinite ease-in-out; stroke-opacity: 1; }
+        .canvas-bg { fill: transparent; }
+      `}</style>
       <svg ref={svgRef} className="w-full h-full block cursor-grab active:cursor-grabbing" />
       {directorPicking && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-5 py-2.5 rounded-2xl shadow-xl text-sm font-bold animate-in slide-in-from-top-4 duration-300 z-50 flex items-center gap-3 border-2 border-white/20 backdrop-blur-md">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-5 py-2.5 rounded-2xl shadow-xl text-sm font-bold animate-in slide-in-from-top-4 duration-300 z-50 flex items-center gap-3 border-2 border-white/20 backdrop-blur-md ring-4 ring-purple-500/20">
            <MousePointer2 className="w-4 h-4 animate-pulse" />
            {directorPicking === 'source' ? "🎬 第一步：点击选择起点节点" : "🎬 第二步：点击选择终点节点"}
            <div className="w-px h-4 bg-white/20"></div>
@@ -537,9 +606,9 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
         </div>
       )}
       {(isLinkMode || (linkingSourceId && !directorPicking)) && ( <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold animate-bounce z-50 flex items-center gap-2"> <LinkIcon className="w-4 h-4" /> {linkingSourceId ? "点击目标节点以连接" : "选择源节点开始连线"} <button onClick={() => {setLinkingSourceId(null); setMousePos(null);}} className="ml-2 hover:bg-white/20 rounded-full p-0.5"> <X className="w-4 h-4" /> </button> </div> )}
-      {selectedLink && !readonly && !isLinkMode && linkPos && !selectedNode && !directorPicking && ( <div className="absolute z-50 pointer-events-auto flex items-center justify-center animate-in zoom-in-95 fade-in duration-200" style={{ left: linkPos.x, top: linkPos.y, transform: 'translate(-50%, -50%)' }}> <button onClick={(e) => { e.stopPropagation(); const s = (selectedLink.source as any).id || selectedLink.source; const t = (selectedLink.target as any).id || selectedLink.target; onLinkDelete?.(s, t); setSelectedLinkId(null); }} className="bg-white p-2.5 rounded-full shadow-xl border border-slate-200 text-red-500 hover:bg-red-50 hover:scale-110 active:scale-95 transition-all group" title="删除连接 (Del)"> <Trash2 className="w-5 h-5" /> </button> </div> )}
-      {selectedNode && !readonly && !isLinkMode && !linkingSourceId && !directorPicking && pos && ( <div className="absolute z-50 pointer-events-none flex flex-col items-center" style={{ left: pos.x, top: pos.y - 35, transform: 'translate(-50%, -100%)' }}> <div className={`bg-white/95 backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.12)] border rounded-2xl p-1 pointer-events-auto flex flex-col items-stretch animate-in zoom-in-95 fade-in duration-200 w-auto min-w-[280px] transition-colors ${isConfirmingDelete ? 'border-red-400 bg-red-50/95' : 'border-slate-200'}`}> <div className="flex items-center gap-1 p-0.5"> <input autoFocus className={`px-3 py-1.5 text-sm font-semibold text-slate-800 bg-transparent border-none focus:ring-0 w-24 outline-none ${isConfirmingDelete ? 'opacity-50' : ''}`} value={editingLabel} disabled={isConfirmingDelete} onChange={(e) => { setEditingLabel(e.target.value); if (onNodeUpdate) onNodeUpdate({ ...selectedNode, label: e.target.value }); }} onKeyDown={(e) => { if(e.key === 'Enter') setSelectedNodeId(null); }} onMouseDown={(e) => e.stopPropagation()} /> <div className="w-px h-6 bg-slate-200 mx-1" /> <div className={`flex gap-1 px-1 ${isConfirmingDelete ? 'opacity-30 pointer-events-none' : ''}`}> {groupColors.map((color, idx) => ( <button key={idx} onMouseDown={(e) => e.stopPropagation()} onClick={() => onNodeUpdate?.({ ...selectedNode, group: idx })} className={`w-4 h-4 rounded-full transition-transform hover:scale-125 ${selectedNode.group === idx ? 'ring-2 ring-slate-400 ring-offset-1 scale-110' : ''}`} style={{ backgroundColor: color }} /> ))} </div> <div className="w-px h-6 bg-slate-200 mx-1" /> <div className="flex gap-1 items-center"> {!isConfirmingDelete ? ( <> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleStartLinking} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center justify-center" title="创建连接 (L)"> <LinkIcon className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsMetaExpanded(!isMetaExpanded); }} className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${ isMetaExpanded ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50' }`} title="编辑元数据"> <Database className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(true); }} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all flex items-center justify-center" title="删除 (Del)"> <Trash2 className="w-4 h-4" /> </button> </> ) : ( <div className="flex items-center gap-1 animate-in slide-in-from-right-2 duration-200"> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onNodeDelete?.(selectedNode.id); setSelectedNodeId(null); }} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"> <Check className="w-3.5 h-3.5" /> 确认删除 <CornerDownLeft className="w-3 h-3 opacity-70" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(false); }} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition-all" title="取消 (Esc)"> <X className="w-4 h-4" /> </button> </div> )} </div> </div> {isMetaExpanded && !isConfirmingDelete && ( <div className="border-t border-slate-100 p-3 space-y-2 animate-in slide-in-from-bottom-2 duration-200 max-h-48 overflow-y-auto custom-scrollbar"> <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between"> <span>Meta Data (meta_data)</span> </div> <div className="space-y-1.5"> {Object.entries(selectedNode.meta_data || {}).map(([k, v]) => ( <div key={k} className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-100 group"> <span className="text-[11px] font-mono font-bold text-slate-500 w-16 truncate" title={k}>{k}:</span> <span className="text-[11px] text-slate-700 flex-1 truncate">{String(v)}</span> <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleRemoveMeta(k)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"> <Trash className="w-3 h-3" /> </button> </div> ))} </div> <div className="pt-2 flex flex-col gap-1.5"> <div className="flex gap-1"> <input onMouseDown={(e) => e.stopPropagation()} className="text-[10px] bg-white border border-slate-200 rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500" placeholder="key" value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} /> <input onMouseDown={(e) => e.stopPropagation()} className="text-[10px] bg-white border border-slate-200 rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500" placeholder="value" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} /> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleAddMeta} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700 transition-colors"> <Plus className="w-3 h-3" /> </button> </div> </div> </div> )} </div> <div className={`w-3 h-3 border-r border-b rotate-45 -mt-1.5 shadow-[2px_2px_5px_rgba(0,0,0,0.02)] transition-colors ${isConfirmingDelete ? 'bg-red-50 border-red-400' : 'bg-white border-slate-200'}`} /> </div> )}
-      {!readonly && !directorPicking && ( <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border border-slate-200 text-[10px] text-slate-400 pointer-events-none flex flex-col gap-0.5"> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Del</kbd> 删除节点/连线</div> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Enter</kbd> 确认操作</div> <div className="flex items-center gap-1.5"><kbd className="bg-slate-100 px-1 rounded border border-slate-300">Esc</kbd> 取消选择</div> </div> )}
+      {selectedLink && !readonly && !isLinkMode && linkPos && !selectedNode && !directorPicking && ( <div className="absolute z-50 pointer-events-auto flex items-center justify-center animate-in zoom-in-95 fade-in duration-200" style={{ left: linkPos.x, top: linkPos.y, transform: 'translate(-50%, -50%)' }}> <button onClick={(e) => { e.stopPropagation(); const s = (selectedLink.source as any).id || selectedLink.source; const t = (selectedLink.target as any).id || selectedLink.target; onLinkDelete?.(s, t); setSelectedLinkId(null); }} className={`p-2.5 rounded-full shadow-xl border text-red-500 hover:scale-110 active:scale-95 transition-all group ${isDirectorMode ? 'bg-slate-800 border-slate-700 hover:bg-red-900/30' : 'bg-white border-slate-200 hover:bg-red-50'}`} title="删除连接 (Del)"> <Trash2 className="w-5 h-5" /> </button> </div> )}
+      {selectedNode && !readonly && !isLinkMode && !linkingSourceId && !directorPicking && pos && ( <div className="absolute z-50 pointer-events-none flex flex-col items-center" style={{ left: pos.x, top: pos.y - 35, transform: 'translate(-50%, -100%)' }}> <div className={`backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.12)] border rounded-2xl p-1 pointer-events-auto flex flex-col items-stretch animate-in zoom-in-95 fade-in duration-200 w-auto min-w-[280px] transition-all ${isConfirmingDelete ? 'border-red-400 bg-red-50/95' : (isDirectorMode ? 'bg-slate-800/90 border-slate-700 ring-1 ring-white/5' : 'bg-white/95 border-slate-200')}`}> <div className="flex items-center gap-1 p-0.5"> <input autoFocus className={`px-3 py-1.5 text-sm font-semibold bg-transparent border-none focus:ring-0 w-24 outline-none ${isDirectorMode ? 'text-slate-200' : 'text-slate-800'} ${isConfirmingDelete ? 'opacity-50' : ''}`} value={editingLabel} disabled={isConfirmingDelete} onChange={(e) => { setEditingLabel(e.target.value); if (onNodeUpdate) onNodeUpdate({ ...selectedNode, label: e.target.value }); }} onKeyDown={(e) => { if(e.key === 'Enter') setSelectedNodeId(null); }} onMouseDown={(e) => e.stopPropagation()} /> <div className={`w-px h-6 mx-1 ${isDirectorMode ? 'bg-slate-700' : 'bg-slate-200'}`} /> <div className={`flex gap-1 px-1 ${isConfirmingDelete ? 'opacity-30 pointer-events-none' : ''}`}> {groupColors.map((color, idx) => ( <button key={idx} onMouseDown={(e) => e.stopPropagation()} onClick={() => onNodeUpdate?.({ ...selectedNode, group: idx })} className={`w-4 h-4 rounded-full transition-transform hover:scale-125 ${selectedNode.group === idx ? (isDirectorMode ? 'ring-2 ring-slate-300 ring-offset-1 ring-offset-slate-800 scale-110' : 'ring-2 ring-slate-400 ring-offset-1 scale-110') : ''}`} style={{ backgroundColor: color }} /> ))} </div> <div className={`w-px h-6 mx-1 ${isDirectorMode ? 'bg-slate-700' : 'bg-slate-200'}`} /> <div className="flex gap-1 items-center"> {!isConfirmingDelete ? ( <> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleStartLinking} className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${isDirectorMode ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-700' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`} title="创建连接 (L)"> <LinkIcon className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsMetaExpanded(!isMetaExpanded); }} className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${ isMetaExpanded ? (isDirectorMode ? 'text-emerald-400 bg-slate-700' : 'text-emerald-600 bg-emerald-50') : (isDirectorMode ? 'text-slate-400 hover:text-emerald-400 hover:bg-slate-700' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50') }`} title="编辑元数据"> <Database className="w-4 h-4" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(true); }} className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${isDirectorMode ? 'text-slate-400 hover:text-red-400 hover:bg-slate-700' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`} title="删除 (Del)"> <Trash2 className="w-4 h-4" /> </button> </> ) : ( <div className="flex items-center gap-1 animate-in slide-in-from-right-2 duration-200"> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onNodeDelete?.(selectedNode.id); setSelectedNodeId(null); }} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"> <Check className="w-3.5 h-3.5" /> 确认删除 <CornerDownLeft className="w-3 h-3 opacity-70" /> </button> <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(false); }} className={`p-1.5 rounded-lg transition-all ${isDirectorMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-200'}`} title="取消 (Esc)"> <X className="w-4 h-4" /> </button> </div> )} </div> </div> {isMetaExpanded && !isConfirmingDelete && ( <div className={`border-t p-3 space-y-2 animate-in slide-in-from-bottom-2 duration-200 max-h-48 overflow-y-auto custom-scrollbar ${isDirectorMode ? 'border-slate-700' : 'border-slate-100'}`}> <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between"> <span>Meta Data (meta_data)</span> </div> <div className="space-y-1.5"> {Object.entries(selectedNode.meta_data || {}).map(([k, v]) => ( <div key={k} className={`flex items-center gap-2 p-1.5 rounded-md border group ${isDirectorMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-100'}`}> <span className="text-[11px] font-mono font-bold text-slate-500 w-16 truncate" title={k}>{k}:</span> <span className={`text-[11px] flex-1 truncate ${isDirectorMode ? 'text-slate-300' : 'text-slate-700'}`}>{String(v)}</span> <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleRemoveMeta(k)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"> <Trash className="w-3 h-3" /> </button> </div> ))} </div> <div className="pt-2 flex flex-col gap-1.5"> <div className="flex gap-1"> <input onMouseDown={(e) => e.stopPropagation()} className={`text-[10px] rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500 ${isDirectorMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200'}`} placeholder="key" value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} /> <input onMouseDown={(e) => e.stopPropagation()} className={`text-[10px] rounded px-2 py-1 flex-1 outline-none focus:ring-1 focus:ring-indigo-500 ${isDirectorMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200'}`} placeholder="value" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} /> <button onMouseDown={(e) => e.stopPropagation()} onClick={handleAddMeta} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700 transition-colors"> <Plus className="w-3 h-3" /> </button> </div> </div> </div> )} </div> <div className={`w-3 h-3 border-r border-b rotate-45 -mt-1.5 shadow-[2px_2px_5px_rgba(0,0,0,0.02)] transition-colors ${isConfirmingDelete ? 'bg-red-50 border-red-400' : (isDirectorMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}`} /> </div> )}
+      {!readonly && !directorPicking && ( <div className={`absolute bottom-4 left-4 backdrop-blur px-3 py-1.5 rounded-md shadow-sm border text-[10px] text-slate-400 pointer-events-none flex flex-col gap-0.5 transition-colors ${isDirectorMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white/80 border-slate-200'}`}> <div className="flex items-center gap-1.5"><kbd className={`${isDirectorMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-300'} px-1 rounded border`}>Del</kbd> 删除节点/连线</div> <div className="flex items-center gap-1.5"><kbd className={`${isDirectorMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-300'} px-1 rounded border`}>Enter</kbd> 确认操作</div> <div className="flex items-center gap-1.5"><kbd className={`${isDirectorMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-300'} px-1 rounded border`}>Esc</kbd> 取消选择</div> </div> )}
     </div>
   );
 });
