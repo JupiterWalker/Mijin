@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { GraphData, ThemeConfig, EventSequence, GraphProject } from './types';
 import Editor from './components/Editor';
@@ -114,8 +113,16 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('graphflow_projects');
     if (saved) {
       try {
-        setProjects(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        // Safety check: Ensure it is an array
+        if (Array.isArray(parsed)) {
+          setProjects(parsed);
+        } else {
+          console.warn("Corrupted data found in localStorage, resetting to demo.");
+          initDemo();
+        }
       } catch (e) {
+        console.error("Failed to parse projects:", e);
         initDemo();
       }
     } else {
