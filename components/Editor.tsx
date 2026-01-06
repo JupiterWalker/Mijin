@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import GraphCanvas, { GraphCanvasHandle } from './GraphCanvas';
-import { GraphData, EventSequence, GraphNode, GraphLink, ThemeConfig, GraphProject, AtomicStep, ParallelStep } from '../types';
+import { GraphData, EventSequence, GraphNode, GraphLink, ThemeConfig, GraphProject, AtomicStep, ParallelStep, EnvironmentZone, EnvironmentLabel } from '../types';
 import { EditorToolbar } from './editor/EditorToolbar';
 import { DevToolsSidebar } from './editor/DevToolsSidebar';
 import { DirectorSidebar } from './editor/DirectorSidebar';
@@ -136,6 +137,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       ...initialProject, 
       name: projectName, 
       graphData: {
+        ...graphData,
         nodes: graphData.nodes.map(cleanNodeData),
         links: graphData.links.map(cleanLinkData)
       }, 
@@ -153,7 +155,11 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       const parsed = JSON.parse(jsonText);
       if (type === 'graph') {
         if (!parsed.nodes || !parsed.links) throw new Error("Missing nodes/links");
-        const cleaned = { nodes: parsed.nodes.map(cleanNodeData), links: parsed.links.map(cleanLinkData) };
+        const cleaned = { 
+          nodes: parsed.nodes.map(cleanNodeData), 
+          links: parsed.links.map(cleanLinkData),
+          environments: parsed.environments 
+        };
         setter(cleaned);
         setGraphJson(JSON.stringify(cleaned, null, 2));
       } else if (type === 'event') {
@@ -170,14 +176,14 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const handleResetData = () => {
     const resetNodes = mountGraphData.nodes.map(cleanNodeData);
     const resetLinks = mountGraphData.links.map(cleanLinkData);
-    const resetData = { nodes: resetNodes, links: resetLinks };
+    const resetData = { nodes: resetNodes, links: resetLinks, environments: mountGraphData.environments };
     setGraphData(resetData);
     setGraphJson(JSON.stringify(resetData, null, 2));
     setCanvasKey(prev => prev + 1);
   };
 
   const handleUpdate = (nodes: GraphNode[], links: GraphLink[]) => {
-    const newData = { nodes: nodes.map(cleanNodeData), links: links.map(cleanLinkData) };
+    const newData = { ...graphData, nodes: nodes.map(cleanNodeData), links: links.map(cleanLinkData) };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
   };
@@ -189,7 +195,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       const targetId = (l.target as any).id || l.target;
       return sourceId !== nodeId && targetId !== nodeId;
     });
-    const newData = { nodes: filteredNodes.map(cleanNodeData), links: filteredLinks.map(cleanLinkData) };
+    const newData = { ...graphData, nodes: filteredNodes.map(cleanNodeData), links: filteredLinks.map(cleanLinkData) };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
   };
@@ -233,6 +239,213 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
       setGraphData(newData);
       setGraphJson(JSON.stringify(newData, null, 2));
     }
+  };
+
+  // Environment Handlers
+  const handleZoneAdd = (zone: EnvironmentZone) => {
+    const currentZones = graphData.environments?.zones || [];
+    const newData = { 
+      ...graphData, 
+      environments: { 
+        ...graphData.environments, 
+        zones: [...currentZones, zone],
+        labels: graphData.environments?.labels || []
+      } 
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleZoneUpdate = (updatedZone: EnvironmentZone) => {
+    const currentZones = graphData.environments?.zones || [];
+    const currentNodes = graphData.nodes || [];
+    const currentLabels = graphData.environments?.labels || [];
+
+    // Capture Logic: If becoming locked, scan for elements inside
+    if (updatedZone.isLocked) {
+      const bounds = {
+        left: updatedZone.x,
+        right: updatedZone.x + updatedZone.width,
+        top: updatedZone.y,
+        bottom: updatedZone.y + updatedZone.height
+      };
+
+      // 1. Find all contained IDs (Greedy first pass)
+      const containedNodeIds = currentNodes
+        .filter(n => 
+          (n.x !== undefined && n.y !== undefined) &&
+          n.x >= bounds.left && n.x <= bounds.right && 
+          n.y >= bounds.top && n.y <= bounds.bottom
+        )
+        .map(n => n.id);
+
+      const containedLabelIds = currentLabels
+        .filter(l => 
+          l.x >= bounds.left && l.x <= bounds.right && 
+          l.y >= bounds.top && l.y <= bounds.bottom
+        )
+        .map(l => l.id);
+
+      const containedZoneIds = currentZones
+        .filter(z => 
+          z.id !== updatedZone.id && // Not self
+          z.x >= bounds.left && (z.x + z.width) <= bounds.right &&
+          z.y >= bounds.top && (z.y + z.height) <= bounds.bottom
+        )
+        .map(z => z.id);
+
+      // 2. Hierarchy Check: Don't steal items that are already owned by a child zone
+      const idsClaimedByChildren = new Set<string>();
+      containedZoneIds.forEach(childZoneId => {
+        const childZone = currentZones.find(z => z.id === childZoneId);
+        if (childZone && childZone.attachedElementIds) {
+          childZone.attachedElementIds.nodes.forEach(id => idsClaimedByChildren.add(id));
+          childZone.attachedElementIds.labels.forEach(id => idsClaimedByChildren.add(id));
+          childZone.attachedElementIds.zones.forEach(id => idsClaimedByChildren.add(id));
+        }
+      });
+
+      const finalNodes = containedNodeIds.filter(id => !idsClaimedByChildren.has(id));
+      const finalLabels = containedLabelIds.filter(id => !idsClaimedByChildren.has(id));
+      const finalZones = containedZoneIds.filter(id => !idsClaimedByChildren.has(id));
+
+      const newZonesState = currentZones.map(z => {
+        if (z.id === updatedZone.id) {
+          return {
+            ...updatedZone,
+            attachedElementIds: {
+              nodes: finalNodes,
+              zones: finalZones,
+              labels: finalLabels
+            }
+          };
+        }
+        if (z.attachedElementIds) {
+          return {
+            ...z,
+            attachedElementIds: {
+              nodes: z.attachedElementIds.nodes.filter(id => !finalNodes.includes(id)),
+              zones: z.attachedElementIds.zones.filter(id => !finalZones.includes(id)),
+              labels: z.attachedElementIds.labels.filter(id => !finalLabels.includes(id))
+            }
+          };
+        }
+        return z;
+      });
+
+      const newData = { 
+        ...graphData, 
+        environments: { 
+          ...graphData.environments, 
+          zones: newZonesState,
+          labels: currentLabels
+        } 
+      };
+      setGraphData(newData);
+      setGraphJson(JSON.stringify(newData, null, 2));
+
+    } else {
+      const newZones = currentZones.map(z => z.id === updatedZone.id ? { 
+        ...updatedZone, 
+        attachedElementIds: { nodes: [], zones: [], labels: [] } // Clear on unlock
+      } : z);
+      
+      const newData = { 
+        ...graphData, 
+        environments: { 
+          ...graphData.environments, 
+          zones: newZones,
+          labels: currentLabels
+        } 
+      };
+      setGraphData(newData);
+      setGraphJson(JSON.stringify(newData, null, 2));
+    }
+  };
+
+  const handleZoneDelete = (id: string) => {
+    const currentZones = graphData.environments?.zones || [];
+    const newZones = currentZones.filter(z => z.id !== id);
+    const newData = {
+      ...graphData,
+      environments: {
+        ...graphData.environments,
+        zones: newZones,
+        labels: graphData.environments?.labels || []
+      }
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleZoneOrder = (id: string, direction: 'front' | 'back') => {
+    const currentZones = graphData.environments?.zones || [];
+    const index = currentZones.findIndex(z => z.id === id);
+    if (index === -1) return;
+
+    const newZones = [...currentZones];
+    const [movedZone] = newZones.splice(index, 1);
+
+    if (direction === 'front') {
+      newZones.push(movedZone);
+    } else {
+      newZones.unshift(movedZone);
+    }
+
+    const newData = {
+      ...graphData,
+      environments: {
+        ...graphData.environments,
+        zones: newZones,
+        labels: graphData.environments?.labels || []
+      }
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleLabelAdd = (label: EnvironmentLabel) => {
+    const currentLabels = graphData.environments?.labels || [];
+    const newData = { 
+      ...graphData, 
+      environments: { 
+        ...graphData.environments, 
+        labels: [...currentLabels, label],
+        zones: graphData.environments?.zones || []
+      } 
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleLabelUpdate = (updatedLabel: EnvironmentLabel) => {
+    const currentLabels = graphData.environments?.labels || [];
+    const newLabels = currentLabels.map(l => l.id === updatedLabel.id ? updatedLabel : l);
+    const newData = { 
+      ...graphData, 
+      environments: { 
+        ...graphData.environments, 
+        labels: newLabels,
+        zones: graphData.environments?.zones || []
+      } 
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleLabelDelete = (id: string) => {
+    const currentLabels = graphData.environments?.labels || [];
+    const newLabels = currentLabels.filter(l => l.id !== id);
+    const newData = {
+      ...graphData,
+      environments: {
+        ...graphData.environments,
+        labels: newLabels,
+        zones: graphData.environments?.zones || []
+      }
+    };
+    setGraphData(newData);
+    setGraphJson(JSON.stringify(newData, null, 2));
   };
 
   // --- Handlers: Director Mode ---
@@ -332,6 +545,13 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           onLinkAdd={handleLinkAdd}
           onLinkDelete={handleLinkDelete}
           onSimulationEnd={handleUpdate}
+          onZoneAdd={handleZoneAdd}
+          onZoneUpdate={handleZoneUpdate}
+          onZoneDelete={handleZoneDelete}
+          onZoneOrder={handleZoneOrder}
+          onLabelAdd={handleLabelAdd}
+          onLabelUpdate={handleLabelUpdate}
+          onLabelDelete={handleLabelDelete}
         />
       </div>
 
