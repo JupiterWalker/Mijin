@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link as LinkIcon, Database, Trash2, Check, CornerDownLeft, X, Trash, Plus } from 'lucide-react';
 import { GraphNode } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface GraphContextMenuProps {
   node: GraphNode;
@@ -25,6 +26,7 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
   onStartLinking,
   onClose
 }) => {
+  const { t } = useTranslation();
   const [editingLabel, setEditingLabel] = useState(node.label);
   const [isMetaExpanded, setIsMetaExpanded] = useState(false);
   const [newMetaKey, setNewMetaKey] = useState("");
@@ -98,7 +100,7 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
                 onClick={() => colorInputRef.current?.click()} 
                 className={`w-6 h-6 rounded-xl border-2 transition-all hover:scale-110 shadow-sm ${isDirectorMode ? 'border-white/10' : 'border-slate-200'}`} 
                 style={{ backgroundColor: currentNodeColor || "#fff" }} 
-                title="自定义颜色" 
+                title={t('context.custom_color')} 
               />
               <input 
                 ref={colorInputRef} 
@@ -123,7 +125,7 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
                   onMouseDown={(e) => e.stopPropagation()} 
                   onClick={(e) => { e.stopPropagation(); onStartLinking(); }} 
                   className={`p-1.5 rounded-xl transition-all flex items-center justify-center ${isDirectorMode ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-700' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`} 
-                  title="创建连接 (L)"
+                  title={t('context.create_link')}
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
                 </button>
@@ -131,7 +133,7 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
                   onMouseDown={(e) => e.stopPropagation()} 
                   onClick={(e) => { e.stopPropagation(); setIsMetaExpanded(!isMetaExpanded); }} 
                   className={`p-1.5 rounded-xl transition-all flex items-center justify-center ${ isMetaExpanded ? (isDirectorMode ? 'text-emerald-400 bg-slate-700' : 'text-emerald-600 bg-emerald-50') : (isDirectorMode ? 'text-slate-400 hover:text-emerald-400 hover:bg-slate-700' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50') }`} 
-                  title="编辑元数据"
+                  title={t('context.edit_meta')}
                 >
                   <Database className="w-3.5 h-3.5" />
                 </button>
@@ -139,7 +141,7 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
                   onMouseDown={(e) => e.stopPropagation()} 
                   onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(true); }} 
                   className={`p-1.5 rounded-xl transition-all flex items-center justify-center ${isDirectorMode ? 'text-slate-400 hover:text-red-400 hover:bg-slate-700' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'}`} 
-                  title="删除 (Del)"
+                  title={t('context.delete')}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -151,13 +153,13 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
                   onClick={(e) => { e.stopPropagation(); onDelete(node.id); onClose(); }} 
                   className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
                 >
-                  <Check className="w-3 h-3" /> 确认 <CornerDownLeft className="w-3 h-3 opacity-70" />
+                  <Check className="w-3 h-3" /> {t('context.confirm')} <CornerDownLeft className="w-3 h-3 opacity-70" />
                 </button>
                 <button 
                   onMouseDown={(e) => e.stopPropagation()} 
                   onClick={(e) => { e.stopPropagation(); setIsConfirmingDelete(false); }} 
                   className={`p-1.5 rounded-xl transition-all ${isDirectorMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-200'}`} 
-                  title="取消 (Esc)"
+                  title={t('context.cancel')}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -170,7 +172,7 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
         {isMetaExpanded && !isConfirmingDelete && (
           <div className={`border-t p-2 space-y-2 animate-in slide-in-from-bottom-2 duration-200 max-h-48 overflow-y-auto custom-scrollbar ${isDirectorMode ? 'border-slate-700' : 'border-slate-100'}`}>
             <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-              <span>Meta Data (meta_data)</span>
+              <span>{t('context.meta_title')}</span>
             </div>
             <div className="space-y-1">
               {Object.entries(node.meta_data || {}).map(([k, v]) => (
@@ -185,8 +187,8 @@ export const GraphContextMenu: React.FC<GraphContextMenuProps> = ({
             </div>
             <div className="pt-1.5 flex flex-col gap-1">
               <div className="flex gap-1">
-                <input onMouseDown={(e) => e.stopPropagation()} className={`text-[9px] rounded px-1.5 py-0.5 flex-1 outline-none focus:ring-1 focus:ring-indigo-500 ${isDirectorMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200'}`} placeholder="key" value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} />
-                <input onMouseDown={(e) => e.stopPropagation()} className={`text-[9px] rounded px-1.5 py-0.5 flex-1 outline-none focus:ring-1 focus:ring-indigo-500 ${isDirectorMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200'}`} placeholder="value" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} />
+                <input onMouseDown={(e) => e.stopPropagation()} className={`text-[9px] rounded px-1.5 py-0.5 flex-1 outline-none focus:ring-1 focus:ring-indigo-500 ${isDirectorMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200'}`} placeholder={t('context.key')} value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} />
+                <input onMouseDown={(e) => e.stopPropagation()} className={`text-[9px] rounded px-1.5 py-0.5 flex-1 outline-none focus:ring-1 focus:ring-indigo-500 ${isDirectorMode ? 'bg-slate-900 border-slate-700 text-slate-300' : 'bg-white border-slate-200'}`} placeholder={t('context.value')} value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} />
                 <button onMouseDown={(e) => e.stopPropagation()} onClick={handleAddMeta} className="bg-indigo-600 text-white rounded p-1 hover:bg-indigo-700 transition-colors">
                   <Plus className="w-2.5 h-2.5" />
                 </button>

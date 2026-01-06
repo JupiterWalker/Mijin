@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GraphData, ThemeConfig, EventSequence, GraphProject } from './types';
 import Editor from './components/Editor';
 import { Dashboard } from './components/Dashboard';
+import { useTranslation } from './i18n';
 
 // --- DEFAULTS ---
 const INITIAL_GRAPH: GraphData = {
@@ -105,6 +106,7 @@ const INITIAL_EVENTS: EventSequence = {
 };
 
 const App: React.FC = () => {
+  const { t } = useTranslation();
   const [projects, setProjects] = useState<GraphProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -153,7 +155,7 @@ const App: React.FC = () => {
   const handleCreateProject = () => {
     const newProject: GraphProject = {
       id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
-      name: `New Project ${projects.length + 1}`,
+      name: `${t('project.new_name')} ${projects.length + 1}`,
       updatedAt: Date.now(),
       isPinned: false,
       graphData: INITIAL_GRAPH,

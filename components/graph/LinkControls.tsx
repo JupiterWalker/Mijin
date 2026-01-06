@@ -1,6 +1,7 @@
 import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { GraphLink } from '../../types';
+import { useTranslation } from '../../i18n';
 
 interface LinkControlsProps {
   link: GraphLink;
@@ -15,6 +16,7 @@ export const LinkControls: React.FC<LinkControlsProps> = ({
   isDirectorMode,
   onDelete
 }) => {
+  const { t } = useTranslation();
   if (!position) return null;
 
   return (
@@ -25,7 +27,7 @@ export const LinkControls: React.FC<LinkControlsProps> = ({
       <button 
         onClick={(e) => { e.stopPropagation(); onDelete(); }} 
         className={`p-2 rounded-full shadow-xl border text-red-500 hover:scale-110 active:scale-95 transition-all group ${isDirectorMode ? 'bg-slate-800 border-slate-700 hover:bg-red-900/30' : 'bg-white border-slate-200 hover:bg-red-50'}`} 
-        title="删除连接 (Del)"
+        title={t('context.delete')}
       >
         <Trash2 className="w-4 h-4" />
       </button>

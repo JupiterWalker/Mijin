@@ -3,6 +3,7 @@ import { Clapperboard, Settings2, X, Sparkles, Link as LinkIcon, Box, Activity, 
 import { EventSequence, GraphData, ThemeConfig, ParallelStep, AtomicStep, InitialNodeState } from '../../types';
 import { DirectorStepCard } from './DirectorStepCard';
 import { GraphCanvasHandle } from '../GraphCanvas';
+import { useTranslation } from '../../i18n';
 
 interface DirectorSidebarProps {
   isOpen: boolean;
@@ -43,11 +44,12 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
   onRunFullAnimation,
   canvasRef
 }) => {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   // -- Helper functions (moved from Editor.tsx) --
   const addParallelGroup = () => {
-    const newGroup: ParallelStep = { type: 'parallel', label: 'Concurrent Actions', steps: [] };
+    const newGroup: ParallelStep = { type: 'parallel', label: t('director.parallel_group'), steps: [] };
     const updatedDraft = { ...draftEventData, steps: [...draftEventData.steps, newGroup] };
     setDraftEventData(updatedDraft);
   };
@@ -100,21 +102,21 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
             <Clapperboard className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-black text-lg tracking-tight leading-tight uppercase">导演工作台</h2>
-            <div className="text-[10px] font-bold text-slate-500 tracking-[0.2em]">DIRECTOR STUDIO v2.4</div>
+            <h2 className="font-black text-lg tracking-tight leading-tight uppercase">{t('director.title')}</h2>
+            <div className="text-[10px] font-bold text-slate-500 tracking-[0.2em]">{t('director.subtitle')}</div>
           </div>
           <div className="relative">
             <button 
               onClick={() => setIsDirectorConfigOpen(!isDirectorConfigOpen)}
               className={`p-1.5 rounded-lg transition-all ml-1 border ${isDirectorConfigOpen ? 'bg-purple-900/50 text-purple-300 border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.2)]' : 'text-slate-500 border-transparent hover:text-purple-400 hover:bg-white/5'}`}
-              title="导演模式默认配置"
+              title={t('director.config_title')}
             >
               <Settings2 className="w-4 h-4" />
             </button>
             {isDirectorConfigOpen && (
               <div className="absolute top-full left-0 mt-3 w-64 bg-slate-900 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 p-5 z-50 animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
-                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sparkles className="w-3 h-3 text-amber-400" /> 默认动作配置</span>
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sparkles className="w-3 h-3 text-amber-400" /> {t('director.config_title')}</span>
                   <button onClick={() => setIsDirectorConfigOpen(false)} className="text-slate-500 hover:text-slate-300 transition-colors">
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -122,53 +124,53 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
                 <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
-                      <LinkIcon className="w-3 h-3" /> 默认连线样式
+                      <LinkIcon className="w-3 h-3" /> {t('director.link_style')}
                     </label>
                     <select 
                       className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
                       value={directorDefaults.linkStyle}
                       onChange={(e) => setDirectorDefaults((prev: any) => ({ ...prev, linkStyle: e.target.value }))}
                     >
-                      <option value="">(无/默认)</option>
+                      <option value="">{t('director.none_default')}</option>
                       {Object.keys(themeData.linkStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Box className="w-3 h-3 text-indigo-400" /> 默认目标状态 (Impact)
+                      <Box className="w-3 h-3 text-indigo-400" /> {t('director.target_state')}
                     </label>
                     <select 
                       className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
                       value={directorDefaults.targetState}
                       onChange={(e) => setDirectorDefaults((prev: any) => ({ ...prev, targetState: e.target.value }))}
                     >
-                      <option value="">(无/不改变)</option>
+                      <option value="">{t('director.none_no_change')}</option>
                       {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Activity className="w-3 h-3 text-amber-500" /> 默认处理状态 (Processing)
+                      <Activity className="w-3 h-3 text-amber-500" /> {t('director.processing_state')}
                     </label>
                     <select 
                       className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
                       value={directorDefaults.processingState}
                       onChange={(e) => setDirectorDefaults((prev: any) => ({ ...prev, processingState: e.target.value }))}
                     >
-                      <option value="">(无/跳过)</option>
+                      <option value="">{t('director.none_skip')}</option>
                       {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-500 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Flag className="w-3 h-3 text-emerald-500" /> 默认结尾状态 (Final)
+                      <Flag className="w-3 h-3 text-emerald-500" /> {t('director.final_state')}
                     </label>
                     <select 
                       className="w-full text-[11px] bg-slate-800 border border-white/5 rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-300"
                       value={directorDefaults.finalState}
                       onChange={(e) => setDirectorDefaults((prev: any) => ({ ...prev, finalState: e.target.value }))}
                     >
-                      <option value="">(无/跳过)</option>
+                      <option value="">{t('director.none_skip')}</option>
                       {Object.keys(themeData.nodeStyles).map(k => <option key={k} value={k} className="bg-slate-900">{k}</option>)}
                     </select>
                   </div>
@@ -185,7 +187,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
-              <History className="w-3.5 h-3.5" /> 初始状态设置
+              <History className="w-3.5 h-3.5" /> {t('director.init_states')}
             </h3>
             <button onClick={addInitNode} className="p-1.5 hover:bg-indigo-500/10 text-indigo-400 rounded-lg transition-all border border-transparent hover:border-indigo-500/30">
               <Plus className="w-4 h-4" />
@@ -219,7 +221,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
         <div className="space-y-5 pt-6 border-t border-white/5">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
-              <Layers className="w-3.5 h-3.5" /> 剧本时间轴
+              <Layers className="w-3.5 h-3.5" /> {t('director.timeline')}
             </h3>
           </div>
 
@@ -236,17 +238,17 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <span className="text-[9px] font-black text-purple-300 bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-500/30 uppercase tracking-[0.1em] flex items-center gap-1.5">
-                          <FastForward className="w-3 h-3" /> 并行组
+                          <FastForward className="w-3 h-3" /> {t('director.parallel_group')}
                         </span>
                         <input 
                           className="text-[11px] font-black text-slate-400 bg-transparent border-none focus:ring-0 p-0 placeholder-slate-600" 
                           value={step.label || ""} 
-                          placeholder="Group Label"
+                          placeholder={t('director.group_label')}
                           onChange={(e) => updateStepProp(idx, 'label', e.target.value)}
                         />
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <button onClick={() => onStartPick(false, idx)} className="p-1.5 text-purple-400 hover:bg-white/5 rounded-lg transition-all border border-transparent hover:border-white/5" title="Add Step to Group">
+                        <button onClick={() => onStartPick(false, idx)} className="p-1.5 text-purple-400 hover:bg-white/5 rounded-lg transition-all border border-transparent hover:border-white/5" title={t('director.add_step_group')}>
                           <Plus className="w-4 h-4" />
                         </button>
                         <button onClick={() => deleteStep(idx)} className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg transition-colors">
@@ -272,7 +274,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
                       ))}
                       {(step as ParallelStep).steps.length === 0 && (
                         <div className="text-[10px] text-slate-600 font-bold text-center py-6 border border-dashed border-white/5 rounded-2xl bg-black/20 italic">
-                          并行组内暂无动作，点击上方 + 添加
+                          {t('director.empty_group')}
                         </div>
                       )}
                     </div>
@@ -299,7 +301,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
               className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed transition-all group ${directorPicking === 'source' && !isContinuousPick ? 'border-purple-500 bg-purple-500/20 text-purple-300' : 'border-slate-800 bg-slate-900/50 hover:bg-slate-800 hover:border-slate-600 text-slate-500'}`}
             >
               <MousePointer2 className="w-6 h-6 mb-2 transition-transform group-hover:scale-110" />
-              <span className="text-[9px] font-black uppercase tracking-wider text-center leading-tight">新增<br/>单步动作</span>
+              <span className="text-[9px] font-black uppercase tracking-wider text-center leading-tight">{t('director.add_step')}</span>
             </button>
 
             <button 
@@ -312,7 +314,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
                   <InfinityIcon className="w-2.5 h-2.5" />
                 </div>
               </div>
-              <span className="text-[9px] font-black uppercase tracking-wider text-center leading-tight">连续<br/>新增单步</span>
+              <span className="text-[9px] font-black uppercase tracking-wider text-center leading-tight">{t('director.add_step_continuous')}</span>
             </button>
 
             <button 
@@ -320,7 +322,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
               className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-slate-800 bg-slate-900/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-slate-500 group"
             >
               <FastForward className="w-6 h-6 mb-2 transition-transform group-hover:scale-110" />
-              <span className="text-[9px] font-black uppercase tracking-wider text-center leading-tight">新增<br/>并行容器</span>
+              <span className="text-[9px] font-black uppercase tracking-wider text-center leading-tight">{t('director.add_parallel')}</span>
             </button>
           </div>
         </div>
@@ -333,7 +335,7 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
             className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 py-3.5 rounded-2xl font-black text-sm flex justify-center items-center transition-all active:scale-[0.97] border border-white/5 shadow-lg group"
           >
             <Play className="w-4 h-4 mr-2 fill-current group-hover:text-purple-400 transition-colors" />
-            全剧试演
+            {t('director.full_rehearsal')}
           </button>
           <button 
             onClick={onCommit}
@@ -341,17 +343,17 @@ export const DirectorSidebar: React.FC<DirectorSidebarProps> = ({
             className={`flex-1 py-3.5 rounded-2xl font-black text-sm flex justify-center items-center transition-all shadow-xl active:scale-[0.97] border ${isDraftDifferent ? 'bg-purple-600 hover:bg-purple-500 text-white border-purple-400 shadow-purple-900/40' : 'bg-slate-800 text-slate-600 border-transparent cursor-not-allowed'}`}
           >
             <Check className="w-4 h-4 mr-2" />
-            提交发布
+            {t('director.commit')}
           </button>
         </div>
         <div className="flex items-center justify-between text-[10px] font-black px-1 uppercase tracking-[0.15em]">
           <div className="flex items-center gap-2 text-slate-500">
-             production READY
+             {t('director.production_ready')}
           </div>
           {isDraftDifferent ? (
-             <span className="text-amber-500 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> 草稿未同步</span>
+             <span className="text-amber-500 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> {t('director.draft_unsynced')}</span>
           ) : (
-             <span className="flex items-center gap-1.5 text-slate-600"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> 已锁定</span>
+             <span className="flex items-center gap-1.5 text-slate-600"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> {t('director.locked')}</span>
           )}
         </div>
       </div>

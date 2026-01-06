@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, Pin, Trash2 } from 'lucide-react';
 import { GraphProject } from '../../types';
 import GraphCanvas from '../GraphCanvas';
+import { useTranslation } from '../../i18n';
 
 interface ProjectCardProps {
   project: GraphProject;
@@ -11,6 +12,7 @@ interface ProjectCardProps {
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onDelete, onPin }) => {
+  const { t } = useTranslation();
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onDe
           <button 
             onClick={onPin}
             className={`p-1.5 rounded-md hover:bg-slate-100 transition-colors ${project.isPinned ? 'text-indigo-600' : 'text-slate-400'}`}
-            title={project.isPinned ? "Unpin" : "Pin to top"}
+            title={project.isPinned ? t('project.unpin') : t('project.pin')}
           >
             {project.isPinned ? <Pin className="w-4 h-4 fill-current" /> : <Pin className="w-4 h-4" />}
           </button>
@@ -72,11 +74,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onDe
                 ? 'bg-red-500 text-white shadow-sm ring-2 ring-red-200' 
                 : 'hover:bg-red-50 text-slate-400 hover:text-red-600'
             }`}
-            title={isConfirmingDelete ? "Click again to confirm delete" : "Delete"}
+            title={isConfirmingDelete ? t('project.click_to_confirm') : t('project.delete')}
             style={{ width: isConfirmingDelete ? 'auto' : undefined }}
           >
             {isConfirmingDelete ? (
-               <span className="text-xs font-bold px-1">Confirm</span>
+               <span className="text-xs font-bold px-1">{t('project.confirm_delete')}</span>
             ) : (
                <Trash2 className="w-4 h-4" />
             )}
