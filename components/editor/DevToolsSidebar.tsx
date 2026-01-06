@@ -58,7 +58,7 @@ export const DevToolsSidebar: React.FC<DevToolsSidebarProps> = ({
         <CollapsibleSection 
           title={t('devtools.topology')}
           icon={<Code2 className="w-4 h-4 text-sky-500" />} 
-          defaultOpen={true} 
+          defaultOpen={false} 
           actions={
             <>
               <button onClick={onResetGraph} className={btnSecondaryClass}>
