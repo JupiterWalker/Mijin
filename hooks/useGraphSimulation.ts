@@ -13,6 +13,22 @@ import {
 import { updateStyles } from '../utils/graphStyling';
 import { AnimationContext, runAnimationSequence, runSingleAnimationStep } from '../utils/graphAnimations';
 
+function sanitizeNodesForCallback(nodes: GraphNode[]): GraphNode[] {
+  return nodes.map((node) => {
+    const fallbackX = typeof node.x === 'number' ? node.x : node.fx ?? node.x;
+    const fallbackY = typeof node.y === 'number' ? node.y : node.fy ?? node.y;
+    const clone: GraphNode = {
+      ...node,
+      x: fallbackX,
+      y: fallbackY,
+    };
+    (clone as any).vx = undefined;
+    (clone as any).vy = undefined;
+    (clone as any).index = undefined;
+    return clone;
+  });
+}
+
 interface Dimensions {
   width: number;
   height: number;
@@ -110,6 +126,12 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
   const linksRef = useRef<GraphLink[]>([]);
 
   const [dimensions, setDimensions] = useState<Dimensions>({ width: 0, height: 0 });
+
+  const emitNodePositions = useCallback(() => {
+    if (!onNodeDragEnd) return;
+    const cloned = sanitizeNodesForCallback(nodesRef.current);
+    onNodeDragEnd(cloned);
+  }, [onNodeDragEnd]);
 
   const refreshStyles = useCallback(() => {
     updateStyles({
@@ -495,7 +517,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
             onZoneUpdate?.({ ...d });
             if (d.isLocked && d.attachedElementIds) {
               if (d.attachedElementIds.nodes.length > 0) {
-                onNodeDragEnd?.(nodesRef.current);
+                emitNodePositions();
               }
               d.attachedElementIds.labels.forEach((labelId) => {
                 const labelData = labels.find((l) => l.id === labelId);
@@ -586,12 +608,26 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
 
     const nodes: GraphNode[] = data.nodes.map((node) => {
       const old = oldNodesMap.get(node.id);
+      const hasExplicitX = typeof node.x === 'number';
+      const hasExplicitY = typeof node.y === 'number';
+      const explicitFxDefined = typeof node.fx !== 'undefined';
+      const explicitFyDefined = typeof node.fy !== 'undefined';
+
+      const mergedX = hasExplicitX ? node.x : old?.x ?? node.x;
+      const mergedY = hasExplicitY ? node.y : old?.y ?? node.y;
+
+      let mergedFx = explicitFxDefined ? node.fx ?? null : old?.fx ?? null;
+      let mergedFy = explicitFyDefined ? node.fy ?? null : old?.fy ?? null;
+
+      if ((hasExplicitX || hasExplicitY) && !explicitFxDefined) mergedFx = null;
+      if ((hasExplicitX || hasExplicitY) && !explicitFyDefined) mergedFy = null;
+
       return {
         ...node,
-        x: old?.x ?? node.x,
-        y: old?.y ?? node.y,
-        fx: old?.fx ?? node.fx ?? null,
-        fy: old?.fy ?? node.fy ?? null,
+        x: mergedX,
+        y: mergedY,
+        fx: mergedFx,
+        fy: mergedFy,
         vx: old?.vx,
         vy: old?.vy,
         activeStates: node.activeStates || [],
@@ -718,7 +754,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
             if (!event.active) simulation.alphaTarget(0);
             event.subject.fx = event.x;
             event.subject.fy = event.y;
-            onNodeDragEnd?.(nodesRef.current);
+            emitNodePositions();
           }) as any,
       );
     }
@@ -848,7 +884,6 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
     onDirectorPick,
     onLabelUpdate,
     onLinkAdd,
-    onNodeDragEnd,
     onZoneUpdate,
     readonly,
     selectedLabelId,
@@ -866,6 +901,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
     theme,
     zones,
     refreshStyles,
+    emitNodePositions,
   ]);
 
   const runAnimation = useCallback(
