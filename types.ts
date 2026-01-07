@@ -32,6 +32,35 @@ export interface GraphLink {
 export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
+  environments?: {
+    zones?: EnvironmentZone[];
+    labels?: EnvironmentLabel[];
+  };
+}
+
+export interface EnvironmentZone {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color?: string;
+  isLocked: boolean;
+  attachedElementIds?: {
+    nodes: string[];
+    zones: string[];
+    labels: string[];
+  };
+}
+
+export interface EnvironmentLabel {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  fontSize: number;
+  color?: string;
 }
 
 // --- Project Management ---

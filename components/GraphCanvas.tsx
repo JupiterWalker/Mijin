@@ -14,6 +14,7 @@ import { DirectorOverlay } from './graph/DirectorOverlay';
 import { LinkControls } from './graph/LinkControls';
 import { GraphContextMenu } from './graph/GraphContextMenu';
 import { EnvironmentContextMenu } from './graph/EnvironmentContextMenu';
+import { MinimapNode, MinimapZone, WorldBounds, ViewportBounds } from './graph/Minimap';
 import { Plus, Square, Type } from 'lucide-react';
 import { useGraphSimulation } from '../hooks/useGraphSimulation';
 
@@ -39,11 +40,19 @@ interface GraphCanvasProps {
   onLabelAdd?: (label: EnvironmentLabel) => void;
   onLabelUpdate?: (label: EnvironmentLabel) => void;
   onLabelDelete?: (id: string) => void;
+  renderMinimap?: (snapshot: MinimapSnapshot) => React.ReactNode;
 }
 
 export interface GraphCanvasHandle {
   runAnimation: (sequence: EventSequence) => void;
   runSingleStep: (step: SimulationAction) => void;
+}
+
+export interface MinimapSnapshot {
+  nodes: MinimapNode[];
+  zones: MinimapZone[];
+  world: WorldBounds;
+  viewport: ViewportBounds;
 }
 
 const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
@@ -68,6 +77,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   onLabelAdd,
   onLabelUpdate,
   onLabelDelete,
+  renderMinimap,
 }, ref) => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
@@ -77,6 +87,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [bgContextMenu, setBgContextMenu] = useState<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
+  const [minimapSnapshot, setMinimapSnapshot] = useState<MinimapSnapshot | null>(null);
 
   const zones = useMemo(() => data.environments?.zones || [], [data.environments]);
   const labels = useMemo(() => data.environments?.labels || [], [data.environments]);
@@ -87,8 +98,10 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     nodesRef,
     linksRef,
     lastTransformRef,
+    dimensions,
     runAnimation,
     runSingleStep,
+    subscribe,
   } = useGraphSimulation({
     data,
     theme,
@@ -119,6 +132,91 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     zones,
     labels,
   });
+
+  useEffect(() => {
+    let frame: number | null = null;
+
+    const computeSnapshot = () => {
+      const transform = lastTransformRef.current;
+      const scale = transform.k || 1;
+      const nodeData: MinimapNode[] = nodesRef.current
+        .filter((node) => typeof node.x === 'number' && typeof node.y === 'number')
+        .map((node) => ({
+          id: node.id,
+          x: node.x as number,
+          y: node.y as number,
+          color: node.apparence?.fill,
+        }));
+
+      const zoneData: MinimapZone[] = zones.map((zone) => ({
+        id: zone.id,
+        x: zone.x,
+        y: zone.y,
+        width: zone.width,
+        height: zone.height,
+        color: (zone as any).color,
+      }));
+
+      const viewport: ViewportBounds = {
+        x: (-transform.x) / scale,
+        y: (-transform.y) / scale,
+        width: dimensions.width / scale,
+        height: dimensions.height / scale,
+      };
+
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+
+      nodeData.forEach((node) => {
+        minX = Math.min(minX, node.x);
+        minY = Math.min(minY, node.y);
+        maxX = Math.max(maxX, node.x);
+        maxY = Math.max(maxY, node.y);
+      });
+
+      zoneData.forEach((zone) => {
+        minX = Math.min(minX, zone.x);
+        minY = Math.min(minY, zone.y);
+        maxX = Math.max(maxX, zone.x + zone.width);
+        maxY = Math.max(maxY, zone.y + zone.height);
+      });
+
+      minX = Math.min(minX, viewport.x);
+      minY = Math.min(minY, viewport.y);
+      maxX = Math.max(maxX, viewport.x + viewport.width);
+      maxY = Math.max(maxY, viewport.y + viewport.height);
+
+      if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+        const fallbackHalfSize = 200;
+        minX = viewport.x - fallbackHalfSize;
+        maxX = viewport.x + viewport.width + fallbackHalfSize;
+        minY = viewport.y - fallbackHalfSize;
+        maxY = viewport.y + viewport.height + fallbackHalfSize;
+      }
+
+      const world: WorldBounds = { minX, minY, maxX, maxY };
+
+      setMinimapSnapshot({ nodes: nodeData, zones: zoneData, world, viewport });
+    };
+
+    const scheduleSnapshot = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        computeSnapshot();
+      });
+    };
+
+    const unsubscribe = subscribe(scheduleSnapshot);
+    scheduleSnapshot();
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      unsubscribe();
+    };
+  }, [dimensions, lastTransformRef, nodesRef, subscribe, zones]);
 
   const selectedNode = useMemo(
     () => data.nodes.find((node) => node.id === selectedNodeId) || null,
@@ -420,6 +518,12 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       )}
 
       {!readonly && !directorPicking && <GraphControls isDirectorMode={isDirectorMode} />}
+
+      {minimapSnapshot && renderMinimap && (
+        <div className="absolute bottom-4 right-4 z-30 pointer-events-none">
+          {renderMinimap(minimapSnapshot)}
+        </div>
+      )}
     </div>
   );
 });

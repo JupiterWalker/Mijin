@@ -81,6 +81,7 @@ export interface UseGraphSimulationResult {
   dimensions: Dimensions;
   runAnimation: (sequence: EventSequence, onSimulationEnd?: (nodes: GraphNode[], links: GraphLink[]) => void) => void;
   runSingleStep: (step: SimulationAction) => void;
+  subscribe: (listener: () => void) => () => void;
 }
 
 export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimulationResult {
@@ -121,11 +122,29 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
   const linkSelectionRef = useRef<d3.Selection<any, GraphLink, any, any> | null>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   const lastTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+  const subscribersRef = useRef(new Set<() => void>());
 
   const nodesRef = useRef<GraphNode[]>([]);
   const linksRef = useRef<GraphLink[]>([]);
 
   const [dimensions, setDimensions] = useState<Dimensions>({ width: 0, height: 0 });
+
+  const notifySubscribers = useCallback(() => {
+    subscribersRef.current.forEach((callback) => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('Minimap subscriber error', error);
+      }
+    });
+  }, []);
+
+  const subscribe = useCallback((listener: () => void) => {
+    subscribersRef.current.add(listener);
+    return () => {
+      subscribersRef.current.delete(listener);
+    };
+  }, []);
 
   const emitNodePositions = useCallback(() => {
     if (!onNodeDragEnd) return;
@@ -256,6 +275,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
       .on('zoom', (event) => {
         svg.select('.zoom-layer').attr('transform', event.transform.toString());
         lastTransformRef.current = event.transform;
+        notifySubscribers();
       });
 
     if (!readonly) {
@@ -477,9 +497,11 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
                 .select('.resize-indicator')
                 .attr('d', `M${newW - 4} ${newH - 12} L${newW - 12} ${newH - 4} M${newW - 4} ${newH - 8} L${newW - 8} ${newH - 4}`);
               parent.select('.lock-btn').attr('transform', `translate(${newW - lockIconSize - 10}, ${lockY})`);
+              notifySubscribers();
             })
             .on('end', (_, d) => {
               onZoneUpdate?.({ ...d });
+              notifySubscribers();
             }) as any,
         );
       }
@@ -512,6 +534,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
             if (d.isLocked && d.attachedElementIds) {
               recursiveMove(d.attachedElementIds, dx, dy, new Set([d.id]));
             }
+            notifySubscribers();
           })
           .on('end', (_, d) => {
             onZoneUpdate?.({ ...d });
@@ -528,6 +551,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
                 if (zoneData) onZoneUpdate?.({ ...zoneData });
               });
             }
+            notifySubscribers();
           }) as any,
       );
     }
@@ -838,6 +862,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
       }
 
       refreshStyles();
+      notifySubscribers();
     };
 
     simulation.on('tick', ticked);
@@ -865,6 +890,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
         const centerY = (minY + maxY) / 2;
         zoomLayer.attr('transform', `translate(${width / 2}, ${height / 2}) scale(${scale}) translate(${-centerX}, ${-centerY})`);
       }
+      notifySubscribers();
     } else {
       ticked();
     }
@@ -902,6 +928,7 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
     zones,
     refreshStyles,
     emitNodePositions,
+      notifySubscribers,
   ]);
 
   const runAnimation = useCallback(
@@ -949,7 +976,9 @@ export function useGraphSimulation(args: UseGraphSimulationArgs): UseGraphSimula
       dimensions,
       runAnimation,
       runSingleStep,
+      runSingleStep,
+      subscribe,
     }),
-    [dimensions, runAnimation, runSingleStep],
+    [dimensions, runAnimation, runSingleStep, subscribe],
   );
 }

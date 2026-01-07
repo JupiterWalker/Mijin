@@ -5,6 +5,7 @@ import { GraphData, EventSequence, GraphNode, GraphLink, ThemeConfig, GraphProje
 import { EditorToolbar } from './editor/EditorToolbar';
 import { DevToolsSidebar } from './editor/DevToolsSidebar';
 import { DirectorSidebar } from './editor/DirectorSidebar';
+import { Minimap } from './graph/Minimap';
 
 interface EditorProps {
   initialProject: GraphProject;
@@ -552,6 +553,15 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           onLabelAdd={handleLabelAdd}
           onLabelUpdate={handleLabelUpdate}
           onLabelDelete={handleLabelDelete}
+          renderMinimap={(snapshot) => (
+            <Minimap
+              nodes={snapshot.nodes}
+              zones={snapshot.zones}
+              world={snapshot.world}
+              viewport={snapshot.viewport}
+              isDirectorMode={isDirectorMode}
+            />
+          )}
         />
       </div>
 
