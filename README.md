@@ -7,6 +7,7 @@ A browser-based tool for building, styling, and animating directed node graphs. 
 ## Features
 
 - **Interactive graph editor** — drag nodes, draw links, create environment zones and labels
+- **AI Import** — upload an architecture diagram or document; an LLM identifies the components and relationships and generates the graph structure automatically; supports any OpenAI-compatible API endpoint (Anthropic, OpenAI, OpenRouter, local Ollama, etc.)
 - **Visual theme system** — define named node/link styles with persistent appearance and animation properties (packet color, node badge, scale effects)
 - **Animation scripting** — author `AtomicStep` and `ParallelStep` sequences; each step supports three-phase node state transitions (impact → processing → final)
 - **Director Mode** — visually build animation scripts by clicking nodes on the canvas; preview each step live as you add it
@@ -32,9 +33,24 @@ Open `http://localhost:5173` in your browser.
 
 | Mode | How to activate | Purpose |
 |---|---|---|
-| **构建 (Build)** | Click the Build button in the toolbar | Add nodes, draw links between nodes |
-| **动画/模拟 (Animate)** | Click the Animate button in the toolbar | Access Director Mode and future simulation tools |
+| **构建 (Build)** | Click the Build button in the toolbar | Add nodes, draw links, import graph from AI |
+| **动画/模拟 (Animate)** | Click the Animate button in the toolbar | Access Director Mode and simulation tools |
 | **Dev Mode** | Toggle in the toolbar | Edit graph topology, theme, and animation script as raw JSON |
+
+### AI Import
+
+Open **构建 → AI Import** to generate a graph from an image or document.
+
+1. Choose a preset or enter a custom **Base URL**, **API Key**, and **Model**
+2. Upload a file (PNG, JPG, PDF, TXT, MD) — drag & drop or click to browse
+3. Click **Analyze** — the model identifies nodes and relationships
+4. Review the generated JSON preview, then click **Apply to Graph**
+
+Supported API formats:
+- URLs containing `anthropic.com` use the Anthropic Messages API
+- All other URLs use the OpenAI Chat Completions API (compatible with OpenRouter, Ollama, etc.)
+
+> **Note:** API calls are routed through the Vite dev-server proxy (`/ai-proxy`) to avoid browser CORS restrictions. This works out of the box with `npm run dev`; a server-side reverse proxy is required for production deployments.
 
 ### Defining a Visual Theme
 

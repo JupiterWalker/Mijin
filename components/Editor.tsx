@@ -5,6 +5,7 @@ import { GraphData, EventSequence, GraphNode, GraphLink, ThemeConfig, GraphProje
 import { EditorToolbar } from './editor/EditorToolbar';
 import { DevToolsSidebar } from './editor/DevToolsSidebar';
 import { DirectorSidebar } from './editor/DirectorSidebar';
+import { ImportFromAIModal } from './editor/ImportFromAIModal';
 import { Minimap } from './graph/Minimap';
 
 interface EditorProps {
@@ -21,6 +22,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isDirty, setIsDirty] = useState(false);
   const [canvasKey, setCanvasKey] = useState(0);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // --- Data State ---
   const [projectName, setProjectName] = useState(initialProject.name);
@@ -226,6 +228,18 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
     const newData = { ...graphData, nodes: [...graphData.nodes, newNode].map(cleanNodeData) };
     setGraphData(newData);
     setGraphJson(JSON.stringify(newData, null, 2));
+  };
+
+  const handleImportFromAI = (imported: GraphData) => {
+    const cleaned = {
+      nodes: imported.nodes.map(cleanNodeData),
+      links: imported.links.map(cleanLinkData),
+      environments: imported.environments,
+    };
+    setGraphData(cleaned);
+    setGraphJson(JSON.stringify(cleaned, null, 2));
+    setCanvasKey(prev => prev + 1);
+    setShowImportModal(false);
   };
 
   const handleLinkAdd = (sourceId: string, targetId: string) => {
@@ -519,6 +533,7 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
           setProjectName={setProjectName}
           onBack={onBack}
           onAddNode={() => handleNodeAdd()}
+          onImportFromAI={() => setShowImportModal(true)}
           isLinkMode={isLinkMode}
           setIsLinkMode={setIsLinkMode}
           isDirectorMode={isDirectorMode}
@@ -603,6 +618,13 @@ const Editor: React.FC<EditorProps> = ({ initialProject, onSave, onBack }) => {
         />
 
       </div>
+
+      {showImportModal && (
+        <ImportFromAIModal
+          onApply={handleImportFromAI}
+          onClose={() => setShowImportModal(false)}
+        />
+      )}
     </div>
   );
 };

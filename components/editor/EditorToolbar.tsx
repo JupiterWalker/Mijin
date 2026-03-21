@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Save, Hammer, Clapperboard, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Hammer, Clapperboard, ChevronRight, Sparkles } from 'lucide-react';
 import { Toggle } from '../Toggle';
 import { useTranslation } from '../../i18n';
 
@@ -8,6 +8,7 @@ interface EditorToolbarProps {
   setProjectName: (name: string) => void;
   onBack: () => void;
   onAddNode: () => void;
+  onImportFromAI: () => void;
   isLinkMode: boolean;
   setIsLinkMode: (val: boolean) => void;
   isDirectorMode: boolean;
@@ -24,6 +25,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   setProjectName,
   onBack,
   onAddNode,
+  onImportFromAI,
   isLinkMode,
   setIsLinkMode,
   isDirectorMode,
@@ -112,6 +114,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               label={isLinkMode ? t('editor.link_activated') : t('editor.link_mode')}
             />
           </div>
+
+          <div className={`h-6 w-px flex-shrink-0 ${isDirectorMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
+
+          <button
+            onClick={onImportFromAI}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border whitespace-nowrap ${
+              isDirectorMode
+                ? 'bg-indigo-950/50 text-indigo-300 border-indigo-500/30 hover:bg-indigo-900/50'
+                : 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {t('build.import_ai')}
+          </button>
         </div>
 
         {divider}
