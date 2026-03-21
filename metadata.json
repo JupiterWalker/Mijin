@@ -1,0 +1,5 @@
+{
+  "name": "GraphFlow Visualizer",
+  "description": "A dynamic node graph visualization tool with developer mode, real-time JSON editing, and event simulation animations.",
+  "requestFramePermissions": []
+}

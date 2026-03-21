@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GraphFlow Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+      }
+      /* Ensure root takes full height */
+      #root {
+        height: 100vh;
+        width: 100vw;
+      }
+
+      /* Custom scrollbar */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+      }
+
+      /* CodeMirror Line Height Synchronization */
+      .cm-editor {
+        height: 100%;
+        font-size: 12px;
+      }
+      .cm-content, .cm-gutterElement {
+        line-height: 20px !important; /* Fixed line height for sync */
+      }
+      .cm-line {
+        padding: 0 4px !important;
+        line-height: 20px !important;
+      }
+      
+      /* Color Swatch Gutter Styles */
+      .color-swatch-input {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        outline: none;
+        background: none;
+      }
+      .color-swatch-input::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      .color-swatch-input::-webkit-color-swatch {
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 2px;
+      }
+
+      /* Hide scrollbar for the custom gutter */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "gsap": "https://esm.sh/gsap@^3.14.2",
+    "d3": "https://esm.sh/d3@^7.9.0",
+    "@uiw/react-codemirror": "https://esm.sh/@uiw/react-codemirror@^4.23.0",
+    "@codemirror/lang-json": "https://esm.sh/@codemirror/lang-json@^6.0.1",
+    "@codemirror/theme-one-dark": "https://esm.sh/@codemirror/theme-one-dark@^6.1.2",
+    "@codemirror/view": "https://esm.sh/@codemirror/view@^6.0.0"
+  }
+}
+</script>
+<script type="module" src="/index.tsx"></script>
+</head>
+  <body class="bg-slate-50 text-slate-900 overflow-hidden">
+    <div id="root"></div>
+  </body>
+</html>
