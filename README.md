@@ -2,6 +2,8 @@
 
 A browser-based tool for building, styling, and animating directed node graphs. Design network topologies, define visual themes, and author step-by-step simulations — all without writing any rendering code.
 
+![运行截图](运行截图.jpg)
+
 ## Features
 
 - **Interactive graph editor** — drag nodes, draw links, create environment zones and labels
