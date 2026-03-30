@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Upload, Sparkles, AlertCircle, CheckCircle, ChevronDown } from 'lucide-react';
+import { X, Upload, Sparkles, AlertCircle, CheckCircle } from 'lucide-react';
 import { GraphData } from '../../types';
 import { useTranslation } from '../../i18n';
 
@@ -9,124 +9,20 @@ interface ImportFromAIModalProps {
 }
 
 const STORAGE_KEYS = {
-  baseUrl: 'ai_import_base_url',
+  backendUrl: 'ai_import_backend_url',
   apiKey: 'ai_import_api_key',
   model: 'ai_import_model',
+  baseUrl: 'ai_import_base_url',
 };
 
-const PRESETS = [
-  { label: 'Anthropic (Claude)', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' },
-  { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
-  { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-sonnet-4-5' },
-  { label: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1', model: 'llava' },
-];
-
-const PROMPT = `Analyze this image or document and extract the nodes (components, services, systems) and their relationships (connections, flows, dependencies).
-
-Return ONLY a valid JSON object with exactly this structure, no explanation, no markdown fences:
-{"nodes":[{"id":"1","label":"Name","group":0}],"links":[{"source":"1","target":"2"}]}
-
-Rules:
-- id: unique string integer starting from "1"
-- label: concise name, 2-4 words
-- group: 0-5 for color (0=general, 1=frontend, 2=backend, 3=database, 4=external, 5=infra)
-- links reference node ids via source/target`;
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function isAnthropicUrl(url: string) {
-  return url.includes('anthropic.com');
-}
-
-// Route through the Vite dev-server proxy to avoid CORS restrictions.
-// The proxy at /ai-proxy forwards the request server-side to the real target URL.
-async function proxyFetch(targetUrl: string, headers: Record<string, string>, body: object): Promise<Response> {
-  return fetch('/ai-proxy', {
-    method: 'POST',
-    headers: { ...headers, 'x-proxy-target': targetUrl },
-    body: JSON.stringify(body),
-  });
-}
-
-async function callAnthropicAPI(baseUrl: string, apiKey: string, model: string, file: File): Promise<string> {
-  let fileBlock: object;
-  if (file.type.startsWith('image/')) {
-    const data = await fileToBase64(file);
-    fileBlock = { type: 'image', source: { type: 'base64', media_type: file.type, data } };
-  } else if (file.type === 'application/pdf') {
-    const data = await fileToBase64(file);
-    fileBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } };
-  } else {
-    const text = await file.text();
-    fileBlock = { type: 'text', text: `File: ${file.name}\n\n${text}` };
-  }
-
-  const targetUrl = `${baseUrl.replace(/\/$/, '')}/v1/messages`;
-  const response = await proxyFetch(
-    targetUrl,
-    { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    { model, max_tokens: 4096, messages: [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }] },
-  );
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error((err as any).error?.message || `API error ${response.status}`);
-  }
-  const data = await response.json();
-  return (data.content?.[0]?.text as string) || '';
-}
-
-async function callOpenAICompatibleAPI(baseUrl: string, apiKey: string, model: string, file: File): Promise<string> {
-  // Use array content only for vision (images); plain string for text/PDF
-  // to maximise compatibility with OpenAI-compatible APIs
-  let message: object;
-  if (file.type.startsWith('image/')) {
-    const data = await fileToBase64(file);
-    message = {
-      role: 'user',
-      content: [
-        { type: 'image_url', image_url: { url: `data:${file.type};base64,${data}` } },
-        { type: 'text', text: PROMPT },
-      ],
-    };
-  } else {
-    const text = file.type === 'application/pdf' ? `[PDF: ${file.name}]` : await file.text();
-    message = {
-      role: 'user',
-      content: `File: ${file.name}\n\n${text}\n\n${PROMPT}`,
-    };
-  }
-
-  const targetUrl = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const response = await proxyFetch(
-    targetUrl,
-    { 'content-type': 'application/json', 'authorization': `Bearer ${apiKey}` },
-    { model, max_tokens: 4096, messages: [message] },
-  );
-
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    const errJson = (() => { try { return JSON.parse(errBody); } catch { return null; } })();
-    const msg = errJson?.error?.message || errJson?.message || errBody || `HTTP ${response.status}`;
-    throw new Error(msg);
-  }
-  const data = await response.json();
-  return (data.choices?.[0]?.message?.content as string) || '';
-}
+const DEFAULT_BACKEND_URL = 'http://localhost:8000';
 
 export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, onClose }) => {
   const { t } = useTranslation();
-  const [baseUrl, setBaseUrl] = useState('https://api.anthropic.com');
+  const [backendUrl, setBackendUrl] = useState(DEFAULT_BACKEND_URL);
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('claude-sonnet-4-6');
-  const [showPresets, setShowPresets] = useState(false);
+  const [model, setModel] = useState('gpt-4o');
+  const [aiBaseUrl, setAiBaseUrl] = useState('https://api.openai.com/v1');
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -136,19 +32,15 @@ export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, o
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const savedUrl = localStorage.getItem(STORAGE_KEYS.baseUrl);
+    const savedBackend = localStorage.getItem(STORAGE_KEYS.backendUrl);
     const savedKey = localStorage.getItem(STORAGE_KEYS.apiKey);
     const savedModel = localStorage.getItem(STORAGE_KEYS.model);
-    if (savedUrl) setBaseUrl(savedUrl);
+    const savedBaseUrl = localStorage.getItem(STORAGE_KEYS.baseUrl);
+    if (savedBackend) setBackendUrl(savedBackend);
     if (savedKey) setApiKey(savedKey);
     if (savedModel) setModel(savedModel);
+    if (savedBaseUrl) setAiBaseUrl(savedBaseUrl);
   }, []);
-
-  const applyPreset = (preset: typeof PRESETS[0]) => {
-    setBaseUrl(preset.baseUrl);
-    setModel(preset.model);
-    setShowPresets(false);
-  };
 
   const handleFile = (f: File) => {
     setFile(f);
@@ -164,29 +56,44 @@ export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, o
   };
 
   const handleAnalyze = async () => {
-    if (!file || !apiKey.trim() || !baseUrl.trim() || !model.trim()) return;
+    if (!file || !apiKey.trim() || !backendUrl.trim() || !model.trim()) return;
     setLoading(true);
     setError('');
     setResult(null);
-    localStorage.setItem(STORAGE_KEYS.baseUrl, baseUrl.trim());
+
+    localStorage.setItem(STORAGE_KEYS.backendUrl, backendUrl.trim());
     localStorage.setItem(STORAGE_KEYS.apiKey, apiKey.trim());
     localStorage.setItem(STORAGE_KEYS.model, model.trim());
+    localStorage.setItem(STORAGE_KEYS.baseUrl, aiBaseUrl.trim());
 
     try {
-      const responseText = isAnthropicUrl(baseUrl)
-        ? await callAnthropicAPI(baseUrl.trim(), apiKey.trim(), model.trim(), file)
-        : await callOpenAICompatibleAPI(baseUrl.trim(), apiKey.trim(), model.trim(), file);
+      const configPayload = JSON.stringify({
+        api_key: apiKey.trim(),
+        base_url: aiBaseUrl.trim() || undefined,
+        model: model.trim(),
+      });
 
-      const match = responseText.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error(t('import.parse_error'));
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('config', configPayload);
 
-      const parsed: GraphData = JSON.parse(match[0]);
-      if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.links)) {
+      const endpoint = `${backendUrl.replace(/\/$/, '')}/generate/graph-from-file`;
+      const response = await fetch(endpoint, { method: 'POST', body: formData });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error((err as any).detail || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const graphData: GraphData = data.graph_data;
+
+      if (!Array.isArray(graphData?.nodes) || !Array.isArray(graphData?.links)) {
         throw new Error(t('import.structure_error'));
       }
 
-      setResult(parsed);
-      setRawJson(JSON.stringify(parsed, null, 2));
+      setResult(graphData);
+      setRawJson(JSON.stringify(graphData, null, 2));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -194,7 +101,7 @@ export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, o
     }
   };
 
-  const canAnalyze = !!file && !!apiKey.trim() && !!baseUrl.trim() && !!model.trim() && !loading;
+  const canAnalyze = !!file && !!apiKey.trim() && !!backendUrl.trim() && !!model.trim() && !loading;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -208,51 +115,33 @@ export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, o
             <Sparkles className="w-4 h-4 text-indigo-500" />
             <span className="font-bold text-sm text-slate-800">{t('import.title')}</span>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Preset Picker */}
-            <div className="relative">
-              <button
-                onClick={() => setShowPresets(v => !v)}
-                className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-2 py-1 hover:bg-slate-50"
-              >
-                {t('import.presets')}
-                <ChevronDown className="w-3 h-3" />
-              </button>
-              {showPresets && (
-                <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg z-10 py-1">
-                  {PRESETS.map(p => (
-                    <button
-                      key={p.label}
-                      onClick={() => applyPreset(p)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 text-slate-700"
-                    >
-                      <div className="font-medium">{p.label}</div>
-                      <div className="text-slate-400 font-mono truncate">{p.model}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
-          {/* Model Config */}
+          {/* Backend URL */}
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1 block">Backend URL</label>
+            <input
+              value={backendUrl}
+              onChange={e => setBackendUrl(e.target.value)}
+              placeholder="http://localhost:8000"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono"
+            />
+          </div>
+
+          {/* AI Model Config */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="text-xs font-semibold text-slate-600 mb-1 block">{t('import.base_url')}</label>
               <input
-                value={baseUrl}
-                onChange={e => setBaseUrl(e.target.value)}
-                placeholder="https://api.anthropic.com"
+                value={aiBaseUrl}
+                onChange={e => setAiBaseUrl(e.target.value)}
+                placeholder="https://api.openai.com/v1"
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono"
               />
-              <p className="text-xs text-slate-400 mt-1">
-                {isAnthropicUrl(baseUrl) ? t('import.format_anthropic') : t('import.format_openai')}
-              </p>
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-600 mb-1 block">{t('import.api_key')}</label>
@@ -269,7 +158,7 @@ export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, o
               <input
                 value={model}
                 onChange={e => setModel(e.target.value)}
-                placeholder="claude-sonnet-4-6"
+                placeholder="gpt-4o"
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 font-mono"
               />
             </div>
@@ -294,10 +183,10 @@ export const ImportFromAIModal: React.FC<ImportFromAIModalProps> = ({ onApply, o
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.pdf,.txt,.md"
+                accept=".txt,.md,.csv,.json,.yaml,.yml,.toml,.xml,.log"
                 className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-              />
+            />
               {file ? (
                 <div className="flex items-center justify-center gap-2 text-green-700">
                   <CheckCircle className="w-4 h-4" />
